@@ -2061,50 +2061,51 @@
         }
 
         // 修改小組分數
+        // 從伺服器重新載入積分相關資料（原子操作後呼叫）
+        function _refreshScoreData(callback) {
+            google.script.run
+                .withSuccessHandler(function(data) {
+                    if (!data) { if (callback) callback(); return; }
+                    if (data.students)        students        = data.students;
+                    if (data.groups)          groups          = data.groups;
+                    if (data.scoreHistory)    scoreHistory    = data.scoreHistory;
+                    if (data.quizAnswers)     quizAnswers     = data.quizAnswers;
+                    if (data.exchangeRequests) exchangeRequests = data.exchangeRequests;
+                    if (data.rewards)         rewards         = data.rewards;
+                    updateRankings();
+                    if (callback) callback();
+                })
+                .withFailureHandler(function(err) {
+                    console.error('_refreshScoreData failed:', err);
+                    if (callback) callback();
+                })
+                .getScoreRelatedData();
+        }
+
         function modifyGroupScore(groupId, scoreChange) {
             const group = groups.find(g => g.id == groupId);
             if (!group) return;
 
-            group.score += scoreChange;
-            
-            // 記錄分數變化
-            const historyRecord = {
-                id: Date.now(),
-                type: 'group',
-                targetId: groupId,
-                targetName: group.name,
-                scoreChange: scoreChange,
-                reason: scoreChange > 0 ? '小組加分' : '小組扣分',
-                date: new Date().toLocaleString('zh-TW'),
-                affectedStudents: []
-            };
-            
-            // 同時更新該組所有學生分數
-            students.forEach(student => {
-                if (student.groupId == groupId) {
-                    student.score += scoreChange;
-                    historyRecord.affectedStudents.push({
-                        id: student.id,
-                        name: student.name,
-                        scoreChange: scoreChange
-                    });
-                }
-            });
-
-            scoreHistory.unshift(historyRecord);
-            google.script.run.setStorage('groups', groups);
-            google.script.run.setStorage('students', students);
-            google.script.run.setStorage('scoreHistory', scoreHistory);
-            
             document.getElementById('groupScore').value = '';
-            updateRankings();
+            google.script.run
+                .withSuccessHandler(function(result) {
+                    if (!result || !result.success) {
+                        alert('小組積分更新失敗：' + (result && result.error || '未知錯誤'));
+                        return;
+                    }
+                    _refreshScoreData();
+                })
+                .withFailureHandler(function(err) {
+                    alert('伺服器錯誤：' + err.message);
+                })
+                .atomicModifyGroupScore(groupId, scoreChange, scoreChange > 0 ? '小組加分' : '小組扣分');
         }
 
         // 個人加分
         function addStudentScore() {
             const studentId = document.getElementById('studentSelect').value;
             const score = parseInt(document.getElementById('studentScore').value);
-            
+
             if (!studentId || !score) return;
 
             modifyStudentScore(studentId, score);
@@ -2114,7 +2115,7 @@
         function subtractStudentScore() {
             const studentId = document.getElementById('studentSelect').value;
             const score = parseInt(document.getElementById('studentScore').value);
-            
+
             if (!studentId || !score) return;
 
             modifyStudentScore(studentId, -score);
@@ -2125,31 +2126,19 @@
             const student = students.find(s => s.id == studentId);
             if (!student) return;
 
-            student.score += scoreChange;
-            
-            // 記錄分數變化
-            const historyRecord = {
-                id: Date.now(),
-                type: 'individual',
-                targetId: studentId,
-                targetName: student.name,
-                groupName: student.groupName,
-                scoreChange: scoreChange,
-                reason: scoreChange > 0 ? '個人加分' : '個人扣分',
-                date: new Date().toLocaleString('zh-TW'),
-                affectedStudents: [{
-                    id: student.id,
-                    name: student.name,
-                    scoreChange: scoreChange
-                }]
-            };
-
-            scoreHistory.unshift(historyRecord);
-            google.script.run.setStorage('students', students);
-            google.script.run.setStorage('scoreHistory', scoreHistory);
-            
             document.getElementById('studentScore').value = '';
-            updateRankings();
+            google.script.run
+                .withSuccessHandler(function(result) {
+                    if (!result || !result.success) {
+                        alert('積分更新失敗：' + (result && result.error || '未知錯誤'));
+                        return;
+                    }
+                    _refreshScoreData();
+                })
+                .withFailureHandler(function(err) {
+                    alert('伺服器錯誤：' + err.message);
+                })
+                .atomicModifyStudentScore(studentId, scoreChange, scoreChange > 0 ? '個人加分' : '個人扣分');
         }
 
         // 排行榜模式切換
@@ -3593,87 +3582,55 @@
         }
 
         function approveExchange(requestId) {
-            // 根據 requestId 找申請；轉為字串比較
             const request = exchangeRequests.find(req => String(req.id) === String(requestId));
             if (!request || request.status !== 'pending') return;
 
-            // 找學生與獎品時用字串比較 ID，避免類型不一致
-            const student = students.find(s => String(s.id) === String(request.studentId));
-            const reward = rewards.find(r => String(r.id) === String(request.rewardId));
+            if (!confirm(`確定同意 ${request.studentName} 兌換「${request.rewardName}」嗎？`)) return;
 
-            if (!student || !reward) {
-                alert('找不到學生或獎品資料');
-                return;
-            }
-
-            if (student.score < request.points) {
-                alert('學生點數不足');
-                return;
-            }
-
-            if (reward.quantity <= 0) {
-                alert('獎品數量不足');
-                return;
-            }
-
-            if (confirm(`確定同意 ${request.studentName} 兌換「${request.rewardName}」嗎？`)) {
-                // 扣除學生點數
-                student.score -= request.points;
-                
-                // 減少獎品數量
-                reward.quantity -= 1;
-                
-                // 更新申請狀態
-                request.status = 'approved';
-                request.approveDate = new Date().toLocaleString('zh-TW');
-
-                // 記錄分數變化
-                const historyRecord = {
-                    id: Date.now(),
-                    type: 'exchange',
-                    targetId: student.id,
-                    targetName: student.name,
-                    groupName: student.groupName,
-                    scoreChange: -request.points,
-                    reason: `兌換獎品：${request.rewardName}`,
-                    date: new Date().toLocaleString('zh-TW'),
-                    affectedStudents: [{
-                        id: student.id,
-                        name: student.name,
-                        scoreChange: -request.points
-                    }]
-                };
-
-                scoreHistory.unshift(historyRecord);
-
-                // 保存資料
-                google.script.run.setStorage('students', students);
-                google.script.run.setStorage('rewards', rewards);
-                google.script.run.setStorage('exchangeRequests', exchangeRequests);
-                google.script.run.setStorage('scoreHistory', scoreHistory);
-
-                updateExchangeRequests();
-                updateRewardManageList();
-                updateRankings();
-                updateTeacherExchangeHistory(); // 更新老師兌換記錄
-                alert('兌換申請已同意！');
-            }
+            google.script.run
+                .withSuccessHandler(function(result) {
+                    if (!result || !result.success) {
+                        const errMsg = result && result.error === 'insufficient_points' ? '學生積分不足' :
+                                       result && result.error === 'insufficient_reward'  ? '獎品數量不足'  :
+                                       (result && result.error || '未知錯誤');
+                        alert('兌換失敗：' + errMsg);
+                        return;
+                    }
+                    _refreshScoreData(function() {
+                        updateExchangeRequests();
+                        updateRewardManageList();
+                        updateTeacherExchangeHistory();
+                        alert('兌換申請已同意！');
+                    });
+                })
+                .withFailureHandler(function(err) {
+                    alert('伺服器錯誤：' + err.message);
+                })
+                .atomicApproveExchange(requestId);
         }
 
         function rejectExchange(requestId) {
-            // 以字串比較 ID 來尋找申請
             const request = exchangeRequests.find(req => String(req.id) === String(requestId));
             if (!request || request.status !== 'pending') return;
 
-            if (confirm(`確定拒絕 ${request.studentName} 的兌換申請嗎？`)) {
-                request.status = 'rejected';
-                request.rejectDate = new Date().toLocaleString('zh-TW');
+            if (!confirm(`確定拒絕 ${request.studentName} 的兌換申請嗎？`)) return;
 
-                google.script.run.setStorage('exchangeRequests', exchangeRequests);
-                updateExchangeRequests();
-                updateTeacherExchangeHistory(); // 更新老師兌換記錄
-                alert('兌換申請已拒絕！');
-            }
+            google.script.run
+                .withSuccessHandler(function(result) {
+                    if (!result || !result.success) {
+                        alert('拒絕失敗：' + (result && result.error || '未知錯誤'));
+                        return;
+                    }
+                    _refreshScoreData(function() {
+                        updateExchangeRequests();
+                        updateTeacherExchangeHistory();
+                        alert('兌換申請已拒絕！');
+                    });
+                })
+                .withFailureHandler(function(err) {
+                    alert('伺服器錯誤：' + err.message);
+                })
+                .atomicRejectExchange(requestId);
         }
 
         // 搶分功能相關函數
@@ -3873,100 +3830,57 @@
         }
 
         function submitQuizAnswer(quizId) {
-            // 用字串比較查找對應的 quiz
             const quiz = quizzes.find(q => String(q.id) === String(quizId));
             if (!quiz || !currentStudent) return;
 
-            // 檢查是否已經作答
-            const hasAnswered = quizAnswers.some(answer =>
-                String(answer.quizId) === String(quizId) && String(answer.studentId) === String(currentStudent.id)
+            // 本地快速檢查（stale-safe，後端會再次確認）
+            const hasAnswered = quizAnswers.some(a =>
+                String(a.quizId) === String(quizId) && String(a.studentId) === String(currentStudent.id)
             );
             if (hasAnswered) {
                 alert('您已經作答過此題目');
                 return;
             }
 
-            // 取得使用者答案
             let userAnswer;
             if (quiz.type === 'choice') {
                 const selectedOption = document.querySelector(`input[name="quiz-${quizId}"]:checked`);
-                if (!selectedOption) {
-                    alert('請選擇一個答案');
-                    return;
-                }
+                if (!selectedOption) { alert('請選擇一個答案'); return; }
                 userAnswer = selectedOption.value;
             } else {
                 const textArea = document.getElementById(`textAnswer-${quizId}`);
                 userAnswer = textArea.value.trim();
-                if (!userAnswer) {
-                    alert('請輸入答案');
-                    return;
-                }
+                if (!userAnswer) { alert('請輸入答案'); return; }
             }
 
-            const isCorrect = userAnswer === quiz.answer;
+            google.script.run
+                .withSuccessHandler(function(result) {
+                    if (!result) { alert('提交失敗，請重試'); return; }
+                    if (result.error === 'already_answered') { alert('您已經作答過此題目'); return; }
+                    if (!result.success) { alert('提交失敗：' + (result.error || '未知錯誤')); return; }
 
-            // 準備答案物件，submitTime 使用 ISO 格式
-            const answer = {
-                id: Date.now(),
-                quizId: quizId,
-                studentId: currentStudent.id,
-                studentName: currentStudent.name,
-                groupName: currentStudent.groupName,
-                answer: userAnswer,
-                submitTime: new Date().toISOString(),
-                isCorrect: isCorrect
-            };
-
-            // 從伺服器取得現有作答紀錄，再根據最新資料給分
-            google.script.run.withSuccessHandler(function(serverAnswers) {
-                if (isCorrect) {
-                    const correctAnswers = (serverAnswers || []).filter(a =>
-                        String(a.quizId) === String(quizId) && a.isCorrect
-                    ).sort((a, b) => {
-                        // 解析提交時間，若無法解析則視為最早
-                        const parseTime = (t) => {
-                            const d = new Date(t);
-                            return isNaN(d) ? 0 : d.getTime();
-                        };
-                        return parseTime(a.submitTime) - parseTime(b.submitTime);
-                    });
-                    const rank = correctAnswers.length + 1;
-                    if (rank <= quiz.winners) {
-                        const scoreAwarded = Number(quiz.scores[rank]);
-                        answer.rank = rank;
-                        answer.scoreAwarded = scoreAwarded;
-                        const student = students.find(s => String(s.id) === String(currentStudent.id));
-                        if (student) {
-                            // student 和 currentStudent 指向同一對象，只需加一次分數
-                            student.score += scoreAwarded;
-                            const historyRecord = {
-                                id: Date.now() + Math.random(),
-                                type: 'quiz',
-                                targetId: student.id,
-                                targetName: student.name,
-                                groupName: student.groupName,
-                                scoreChange: scoreAwarded,
-                                reason: `搶分活動第${rank}名：${quiz.title}`,
-                                date: new Date().toLocaleString('zh-TW'),
-                                affectedStudents: [{
-                                    id: student.id,
-                                    name: student.name,
-                                    scoreChange: scoreAwarded
-                                }]
-                            };
-                            scoreHistory.unshift(historyRecord);
-                            google.script.run.setStorage('students', students);
-                            google.script.run.setStorage('scoreHistory', scoreHistory);
-                            updateRankings();
-                        }
+                    if (result.isCorrect && result.rank > 0) {
+                        alert(`答對了！您是第 ${result.rank} 名，獲得 ${result.scoreAwarded} 積分！`);
+                    } else if (result.isCorrect) {
+                        alert('答對了！但得獎名額已滿，未獲得積分。');
+                    } else {
+                        alert('答錯了，請繼續加油！');
                     }
-                }
-                // 將答案加入本地陣列並同步到後端
-                quizAnswers.push(answer);
-                google.script.run.setStorage('quizAnswers', quizAnswers);
-                updateStudentQuizList();
-            }).getStorage('quizAnswers');
+
+                    _refreshScoreData(function() {
+                        updateStudentQuizList();
+                    });
+                })
+                .withFailureHandler(function(err) {
+                    alert('伺服器錯誤：' + err.message);
+                })
+                .atomicSubmitQuizAnswer(
+                    quizId,
+                    currentStudent.id,
+                    currentStudent.name,
+                    currentStudent.groupName,
+                    userAnswer
+                );
         }
 
         // 教師搶分管理功能
