@@ -1,0 +1,638 @@
+<script>
+        function showRewardExchange() {
+            if (currentUser !== 'student' || !currentStudent) return;
+            
+            document.getElementById('rewardExchangeModal').classList.remove('hidden');
+            document.getElementById('currentStudentPoints').textContent = currentStudent.score;
+            updateStudentRewardsList();
+        }
+
+        function closeRewardExchangeModal() {
+            document.getElementById('rewardExchangeModal').classList.add('hidden');
+            hideExchangeHistory(); // 確保關閉時回到獎品列表
+        }
+
+        function showExchangeHistory() {
+            document.getElementById('rewardsList').classList.add('hidden');
+            document.getElementById('studentPointsDisplay').classList.add('hidden');
+            document.getElementById('exchangeHistorySection').classList.remove('hidden');
+            updateStudentExchangeHistory();
+        }
+
+        function hideExchangeHistory() {
+            document.getElementById('exchangeHistorySection').classList.add('hidden');
+            document.getElementById('rewardsList').classList.remove('hidden');
+            document.getElementById('studentPointsDisplay').classList.remove('hidden');
+        }
+
+        function updateStudentExchangeHistory() {
+            if (currentUser !== 'student' || !currentStudent) return;
+            
+            const container = document.getElementById('studentExchangeHistory');
+            // filter by studentId as strings
+            const studentRequests = exchangeRequests.filter(req => String(req.studentId) === String(currentStudent.id));
+            
+            if (studentRequests.length === 0) {
+                container.innerHTML = `
+                    <div class="text-center text-gray-500 py-8">
+                        <div class="text-4xl mb-2">📋</div>
+                        <p>尚無兌換記錄</p>
+                    </div>
+                `;
+                return;
+            }
+
+            // 按時間排序，最新的在前面
+            const sortedRequests = studentRequests.sort((a, b) => new Date(b.requestDate) - new Date(a.requestDate));
+
+            container.innerHTML = sortedRequests.map(request => {
+                let statusClass, statusIcon, statusText, statusBg;
+                
+                switch (request.status) {
+                    case 'pending':
+                        statusClass = 'text-yellow-700';
+                        statusBg = 'bg-yellow-100';
+                        statusIcon = '⏳';
+                        statusText = '審核中';
+                        break;
+                    case 'approved':
+                        statusClass = 'text-green-700';
+                        statusBg = 'bg-green-100';
+                        statusIcon = '✅';
+                        statusText = '已同意';
+                        break;
+                    case 'rejected':
+                        statusClass = 'text-red-700';
+                        statusBg = 'bg-red-100';
+                        statusIcon = '❌';
+                        statusText = '已拒絕';
+                        break;
+                    default:
+                        statusClass = 'text-gray-700';
+                        statusBg = 'bg-gray-100';
+                        statusIcon = '❓';
+                        statusText = '未知';
+                }
+
+                return `
+                    <div class="bg-white rounded-xl p-4 border border-gray-200">
+                        <div class="flex justify-between items-start mb-3">
+                            <div>
+                                <h4 class="font-semibold text-gray-800">${request.rewardName}</h4>
+                                <div class="text-sm text-gray-600">申請時間：${request.requestDate}</div>
+                                ${request.approveDate ? `<div class="text-sm text-gray-600">處理時間：${request.approveDate}</div>` : ''}
+                                ${request.rejectDate ? `<div class="text-sm text-gray-600">處理時間：${request.rejectDate}</div>` : ''}
+                            </div>
+                            <div class="text-right">
+                                <div class="text-lg font-bold text-blue-600">${request.points} 點</div>
+                                <div class="flex items-center space-x-1 text-sm px-2 py-1 rounded-full ${statusBg} ${statusClass}">
+                                    <span>${statusIcon}</span>
+                                    <span>${statusText}</span>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        ${request.status === 'approved' ? `
+                            <div class="mt-3 p-3 bg-green-50 rounded-lg">
+                                <div class="text-sm text-green-800">🎉 恭喜！您的兌換申請已通過，請向老師領取獎品。</div>
+                            </div>
+                        ` : ''}
+                        
+                        ${request.status === 'rejected' ? `
+                            <div class="mt-3 p-3 bg-red-50 rounded-lg">
+                                <div class="text-sm text-red-800">😔 很抱歉，您的兌換申請未通過審核。</div>
+                            </div>
+                        ` : ''}
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function updateStudentRewardsList() {
+            const container = document.getElementById('rewardsList');
+            
+            if (rewards.length === 0) {
+                container.innerHTML = `
+                    <div class="text-center text-gray-500 py-8 col-span-full">
+                        <div class="text-4xl mb-2">🎁</div>
+                        <p>尚無可兌換獎品</p>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = rewards.map(reward => {
+                const canAfford = currentStudent.score >= reward.points;
+                const isOutOfStock = reward.quantity <= 0;
+                
+                // 檢查是否有待審核的申請（將 ID 轉為字串比較）
+                const pendingRequest = exchangeRequests.find(req => 
+                    String(req.studentId) === String(currentStudent.id) &&
+                    String(req.rewardId) === String(reward.id) &&
+                    req.status === 'pending'
+                );
+
+                let buttonClass, buttonText, buttonDisabled;
+                
+                if (pendingRequest) {
+                    buttonClass = 'bg-yellow-500 text-white cursor-not-allowed';
+                    buttonText = '審核中';
+                    buttonDisabled = true;
+                } else if (isOutOfStock) {
+                    buttonClass = 'bg-orange-400 text-white cursor-not-allowed';
+                    buttonText = '補貨中';
+                    buttonDisabled = true;
+                } else if (!canAfford) {
+                    buttonClass = 'bg-gray-300 text-gray-500 cursor-not-allowed';
+                    buttonText = '點數不足';
+                    buttonDisabled = true;
+                } else {
+                    buttonClass = 'bg-green-500 hover:bg-green-600 text-white';
+                    buttonText = '申請兌換';
+                    buttonDisabled = false;
+                }
+                
+                return `
+                    <div class="bg-white rounded-xl p-4 border border-gray-200 card-shadow ${isOutOfStock ? 'opacity-75' : ''}">
+                        ${reward.image ? `
+                            <div class="mb-4 relative">
+                                <img src="${reward.image}" alt="${reward.name}" class="w-full h-32 object-cover rounded-lg ${isOutOfStock ? 'grayscale' : ''}">
+                                ${isOutOfStock ? '<div class="absolute inset-0 bg-black bg-opacity-30 rounded-lg flex items-center justify-center"><span class="text-white font-bold">缺貨</span></div>' : ''}
+                            </div>
+                        ` : `
+                            <div class="mb-4 bg-gray-100 rounded-lg h-32 flex items-center justify-center relative ${isOutOfStock ? 'bg-gray-200' : ''}">
+                                <div class="text-4xl ${isOutOfStock ? 'grayscale' : ''}">🎁</div>
+                                ${isOutOfStock ? '<div class="absolute inset-0 bg-black bg-opacity-30 rounded-lg flex items-center justify-center"><span class="text-white font-bold">缺貨</span></div>' : ''}
+                            </div>
+                        `}
+                        
+                        <h3 class="font-semibold text-gray-800 mb-2">${reward.name}</h3>
+                        <p class="text-sm text-gray-600 mb-3">${reward.description || '暫無描述'}</p>
+                        
+                        <div class="flex items-center justify-between mb-3">
+                            <div class="text-lg font-bold text-blue-600">${reward.points} 點</div>
+                            <div class="text-sm ${isOutOfStock ? 'text-red-500 font-semibold' : 'text-gray-500'}">
+                                剩餘 ${reward.quantity} 個
+                            </div>
+                        </div>
+                        
+                        <button onclick="requestExchange('${reward.id}')" 
+                                ${buttonDisabled ? 'disabled' : ''} 
+                                class="w-full py-2 px-4 rounded-lg transition-colors ${buttonClass}">
+                            ${buttonText}
+                        </button>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function requestExchange(rewardId) {
+            if (currentUser !== 'student' || !currentStudent) return;
+            
+            // 以字串比較，避免 ID 型別不一致
+            const reward = rewards.find(r => String(r.id) === String(rewardId));
+            if (!reward || reward.quantity <= 0 || currentStudent.score < reward.points) {
+                alert('無法兌換此獎品');
+                return;
+            }
+
+            // 檢查是否已有待審核的申請
+            // 檢查是否已有待審核的申請，ID 比對改為字串
+            const existingRequest = exchangeRequests.find(req => 
+                String(req.studentId) === String(currentStudent.id) && 
+                String(req.rewardId) === String(rewardId) && 
+                req.status === 'pending'
+            );
+
+            if (existingRequest) {
+                alert('您已申請兌換此獎品，請等待老師審核');
+                return;
+            }
+
+            if (confirm(`確定要申請兌換「${reward.name}」嗎？\n需要 ${reward.points} 點數`)) {
+                const request = {
+                    id: Date.now(),
+                    studentId: currentStudent.id,
+                    studentName: currentStudent.name,
+                    groupName: currentStudent.groupName,
+                    rewardId: reward.id,
+                    rewardName: reward.name,
+                    points: reward.points,
+                    status: 'pending',
+                    requestDate: new Date().toLocaleString('zh-TW')
+                };
+
+                exchangeRequests.push(request);
+                google.script.run.setStorage('exchangeRequests', exchangeRequests);
+                
+                alert('兌換申請已提交，請等待老師審核');
+                updateStudentRewardsList(); // 重新整理列表以顯示審核中狀態
+            }
+        }
+
+        // 教師獎品管理功能
+        function showAddRewardForm() {
+            document.getElementById('addRewardForm').classList.remove('hidden');
+            document.getElementById('editRewardForm').classList.add('hidden');
+            document.getElementById('exchangeRequestsSection').classList.add('hidden');
+        }
+
+        function hideAddRewardForm() {
+            document.getElementById('addRewardForm').classList.add('hidden');
+            clearAddRewardForm();
+        }
+
+        function clearAddRewardForm() {
+            document.getElementById('rewardName').value = '';
+            document.getElementById('rewardPoints').value = '';
+            document.getElementById('rewardQuantity').value = '';
+            document.getElementById('rewardDescription').value = '';
+            document.getElementById('rewardImage').value = '';
+        }
+
+        function addReward() {
+            const name = document.getElementById('rewardName').value.trim();
+            const points = parseInt(document.getElementById('rewardPoints').value);
+            const quantity = parseInt(document.getElementById('rewardQuantity').value);
+            const description = document.getElementById('rewardDescription').value.trim();
+            const imageFile = document.getElementById('rewardImage').files[0];
+
+            if (!name || !points || !quantity) {
+                alert('請填寫所有必要欄位');
+                return;
+            }
+
+            const reward = {
+                id: Date.now(),
+                name: name,
+                points: points,
+                quantity: quantity,
+                description: description,
+                image: null
+            };
+
+            if (imageFile) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    reward.image = e.target.result;
+                    rewards.push(reward);
+                    google.script.run.setStorage('rewards', rewards);
+                    hideAddRewardForm();
+                    updateRewardManageList();
+                    alert('獎品新增成功！');
+                };
+                reader.readAsDataURL(imageFile);
+            } else {
+                rewards.push(reward);
+                google.script.run.setStorage('rewards', rewards);
+                hideAddRewardForm();
+                updateRewardManageList();
+                alert('獎品新增成功！');
+            }
+        }
+
+        function updateRewardManageList() {
+            const container = document.getElementById('rewardManageList');
+            
+            if (rewards.length === 0) {
+                container.innerHTML = `
+                    <div class="text-center text-gray-500 py-8 col-span-full">
+                        <div class="text-4xl mb-2">🎁</div>
+                        <p>尚無獎品</p>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = rewards.map(reward => `
+                <div class="bg-white rounded-xl p-4 border border-gray-200 card-shadow">
+                    ${reward.image ? `
+                        <div class="mb-4">
+                            <img src="${reward.image}" alt="${reward.name}" class="w-full h-32 object-cover rounded-lg">
+                        </div>
+                    ` : `
+                        <div class="mb-4 bg-gray-100 rounded-lg h-32 flex items-center justify-center">
+                            <div class="text-4xl">🎁</div>
+                        </div>
+                    `}
+                    
+                    <h3 class="font-semibold text-gray-800 mb-2">${reward.name}</h3>
+                    <p class="text-sm text-gray-600 mb-3">${reward.description || '暫無描述'}</p>
+                    
+                    <div class="grid grid-cols-2 gap-2 mb-3 text-sm">
+                        <div class="text-center bg-blue-50 rounded-lg p-2">
+                            <div class="font-bold text-blue-600">${reward.points}</div>
+                            <div class="text-gray-600">所需點數</div>
+                        </div>
+                        <div class="text-center bg-green-50 rounded-lg p-2">
+                            <div class="font-bold text-green-600">${reward.quantity}</div>
+                            <div class="text-gray-600">剩餘數量</div>
+                        </div>
+                    </div>
+                    
+                    <div class="flex space-x-2">
+                        <button onclick="editReward('${reward.id}')" class="flex-1 bg-blue-500 hover:bg-blue-600 text-white py-2 px-3 rounded-lg transition-colors text-sm">
+                            編輯
+                        </button>
+                        <button onclick="deleteReward('${reward.id}')" class="flex-1 bg-red-500 hover:bg-red-600 text-white py-2 px-3 rounded-lg transition-colors text-sm">
+                            刪除
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function editReward(rewardId) {
+            // 以字串比較，避免 ID 型別不一致
+            const reward = rewards.find(r => String(r.id) === String(rewardId));
+            if (!reward) return;
+
+            document.getElementById('editRewardId').value = reward.id;
+            document.getElementById('editRewardName').value = reward.name;
+            document.getElementById('editRewardPoints').value = reward.points;
+            document.getElementById('editRewardQuantity').value = reward.quantity;
+            document.getElementById('editRewardDescription').value = reward.description || '';
+
+            document.getElementById('addRewardForm').classList.add('hidden');
+            document.getElementById('editRewardForm').classList.remove('hidden');
+            document.getElementById('exchangeRequestsSection').classList.add('hidden');
+        }
+
+        function hideEditRewardForm() {
+            document.getElementById('editRewardForm').classList.add('hidden');
+        }
+
+        function updateReward() {
+            // 直接使用字串形式的 rewardId，避免型別不一致
+            const rewardId = document.getElementById('editRewardId').value;
+            const name = document.getElementById('editRewardName').value.trim();
+            const points = parseInt(document.getElementById('editRewardPoints').value);
+            const quantity = parseInt(document.getElementById('editRewardQuantity').value);
+            const description = document.getElementById('editRewardDescription').value.trim();
+            const imageFile = document.getElementById('editRewardImage').files[0];
+
+            if (!name || !points || quantity < 0) {
+                alert('請填寫所有必要欄位');
+                return;
+            }
+
+            // 用字串比較尋找對應獎品
+            const reward = rewards.find(r => String(r.id) === String(rewardId));
+            if (!reward) return;
+
+            reward.name = name;
+            reward.points = points;
+            reward.quantity = quantity;
+            reward.description = description;
+
+            if (imageFile) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    reward.image = e.target.result;
+                    google.script.run.setStorage('rewards', rewards);
+                    hideEditRewardForm();
+                    updateRewardManageList();
+                    alert('獎品更新成功！');
+                };
+                reader.readAsDataURL(imageFile);
+            } else {
+                google.script.run.setStorage('rewards', rewards);
+                hideEditRewardForm();
+                updateRewardManageList();
+                alert('獎品更新成功！');
+            }
+        }
+
+        function deleteReward(rewardId) {
+            if (confirm('確定要刪除這個獎品嗎？')) {
+                // 用字串比較避免類型不一致
+                rewards = rewards.filter(r => String(r.id) !== String(rewardId));
+                google.script.run.setStorage('rewards', rewards);
+                updateRewardManageList();
+                alert('獎品已刪除！');
+            }
+        }
+
+        function showExchangeRequests() {
+            document.getElementById('addRewardForm').classList.add('hidden');
+            document.getElementById('editRewardForm').classList.add('hidden');
+            document.getElementById('exchangeRequestsSection').classList.remove('hidden');
+            document.getElementById('teacherExchangeHistorySection').classList.add('hidden');
+            updateExchangeRequests();
+        }
+
+        function showTeacherExchangeHistory() {
+            document.getElementById('addRewardForm').classList.add('hidden');
+            document.getElementById('editRewardForm').classList.add('hidden');
+            document.getElementById('exchangeRequestsSection').classList.add('hidden');
+            document.getElementById('teacherExchangeHistorySection').classList.remove('hidden');
+            updateTeacherExchangeHistoryFilters();
+            updateTeacherExchangeHistory();
+        }
+
+        function updateTeacherExchangeHistoryFilters() {
+            const studentFilter = document.getElementById('exchangeStudentFilter');
+            studentFilter.innerHTML = '<option value="">所有學生</option>';
+            
+            // 獲取所有有兌換記錄的學生
+            const studentsWithExchange = [...new Set(exchangeRequests.map(req => req.studentId))];
+            studentsWithExchange.forEach(studentId => {
+                // 用字串比較避免類型不一致
+                const student = students.find(s => String(s.id) === String(studentId));
+                if (student) {
+                    studentFilter.innerHTML += `<option value="${student.id}">${student.name} (${student.groupName})</option>`;
+                }
+            });
+            
+            // 添加事件監聽器
+            document.getElementById('exchangeStatusFilter').addEventListener('change', updateTeacherExchangeHistory);
+            document.getElementById('exchangeStudentFilter').addEventListener('change', updateTeacherExchangeHistory);
+        }
+
+        function updateTeacherExchangeHistory() {
+            const container = document.getElementById('teacherExchangeHistoryList');
+            const statusFilter = document.getElementById('exchangeStatusFilter').value;
+            const studentFilter = document.getElementById('exchangeStudentFilter').value;
+            
+            let filteredRequests = [...exchangeRequests];
+            
+            // 按狀態篩選
+            if (statusFilter) {
+                filteredRequests = filteredRequests.filter(req => req.status === statusFilter);
+            }
+            
+            // 按學生篩選
+            if (studentFilter) {
+                filteredRequests = filteredRequests.filter(req => req.studentId == studentFilter);
+            }
+            
+            // 按時間排序，最新的在前面
+            filteredRequests.sort((a, b) => new Date(b.requestDate) - new Date(a.requestDate));
+            
+            if (filteredRequests.length === 0) {
+                container.innerHTML = `
+                    <div class="text-center text-gray-500 py-8">
+                        <div class="text-4xl mb-2">📊</div>
+                        <p>尚無兌換記錄</p>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = filteredRequests.map(request => {
+                let statusClass, statusIcon, statusText, statusBg;
+                
+                switch (request.status) {
+                    case 'pending':
+                        statusClass = 'text-yellow-700';
+                        statusBg = 'bg-yellow-100';
+                        statusIcon = '⏳';
+                        statusText = '審核中';
+                        break;
+                    case 'approved':
+                        statusClass = 'text-green-700';
+                        statusBg = 'bg-green-100';
+                        statusIcon = '✅';
+                        statusText = '已同意';
+                        break;
+                    case 'rejected':
+                        statusClass = 'text-red-700';
+                        statusBg = 'bg-red-100';
+                        statusIcon = '❌';
+                        statusText = '已拒絕';
+                        break;
+                    default:
+                        statusClass = 'text-gray-700';
+                        statusBg = 'bg-gray-100';
+                        statusIcon = '❓';
+                        statusText = '未知';
+                }
+
+                return `
+                    <div class="bg-white rounded-xl p-4 border border-gray-200">
+                        <div class="flex justify-between items-start mb-3">
+                            <div>
+                                <div class="font-semibold text-gray-800">${request.studentName}</div>
+                                <div class="text-sm text-gray-600">${request.groupName}</div>
+                                <div class="text-xs text-gray-500">申請時間：${request.requestDate}</div>
+                                ${request.approveDate ? `<div class="text-xs text-gray-500">同意時間：${request.approveDate}</div>` : ''}
+                                ${request.rejectDate ? `<div class="text-xs text-gray-500">拒絕時間：${request.rejectDate}</div>` : ''}
+                            </div>
+                            <div class="text-right">
+                                <div class="font-semibold text-blue-600 mb-1">${request.rewardName}</div>
+                                <div class="text-sm text-gray-600 mb-2">${request.points} 點數</div>
+                                <div class="flex items-center space-x-1 text-sm px-2 py-1 rounded-full ${statusBg} ${statusClass}">
+                                    <span>${statusIcon}</span>
+                                    <span>${statusText}</span>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        ${request.status === 'pending' ? `
+                            <div class="flex space-x-2 mt-3 pt-3 border-t border-gray-200">
+                                <button onclick="approveExchange('${request.id}')" class="flex-1 bg-green-500 hover:bg-green-600 text-white py-2 px-4 rounded-lg transition-colors text-sm">
+                                    同意兌換
+                                </button>
+                                <button onclick="rejectExchange('${request.id}')" class="flex-1 bg-red-500 hover:bg-red-600 text-white py-2 px-4 rounded-lg transition-colors text-sm">
+                                    拒絕兌換
+                                </button>
+                            </div>
+                        ` : ''}
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function updateExchangeRequests() {
+            const container = document.getElementById('exchangeRequestsList');
+            const pendingRequests = exchangeRequests.filter(req => req.status === 'pending');
+            
+            if (pendingRequests.length === 0) {
+                container.innerHTML = `
+                    <div class="text-center text-gray-500 py-8">
+                        <div class="text-4xl mb-2">📋</div>
+                        <p>尚無待處理申請</p>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = pendingRequests.map(request => `
+                <div class="bg-white rounded-xl p-4 border border-gray-200">
+                    <div class="flex justify-between items-start mb-3">
+                        <div>
+                            <div class="font-semibold text-gray-800">${request.studentName}</div>
+                            <div class="text-sm text-gray-600">${request.groupName}</div>
+                            <div class="text-xs text-gray-500">${request.requestDate}</div>
+                        </div>
+                        <div class="text-right">
+                            <div class="font-semibold text-blue-600">${request.rewardName}</div>
+                            <div class="text-sm text-gray-600">${request.points} 點數</div>
+                        </div>
+                    </div>
+                    
+                    <div class="flex space-x-2">
+                        <button onclick="approveExchange('${request.id}')" class="flex-1 bg-green-500 hover:bg-green-600 text-white py-2 px-4 rounded-lg transition-colors">
+                            同意兌換
+                        </button>
+                        <button onclick="rejectExchange('${request.id}')" class="flex-1 bg-red-500 hover:bg-red-600 text-white py-2 px-4 rounded-lg transition-colors">
+                            拒絕兌換
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function approveExchange(requestId) {
+            const request = exchangeRequests.find(req => String(req.id) === String(requestId));
+            if (!request || request.status !== 'pending') return;
+
+            if (!confirm(`確定同意 ${request.studentName} 兌換「${request.rewardName}」嗎？`)) return;
+
+            google.script.run
+                .withSuccessHandler(function(result) {
+                    if (!result || !result.success) {
+                        const errMsg = result && result.error === 'insufficient_points' ? '學生積分不足' :
+                                       result && result.error === 'insufficient_reward'  ? '獎品數量不足'  :
+                                       (result && result.error || '未知錯誤');
+                        alert('兌換失敗：' + errMsg);
+                        return;
+                    }
+                    _refreshScoreData(function() {
+                        updateExchangeRequests();
+                        updateRewardManageList();
+                        updateTeacherExchangeHistory();
+                        alert('兌換申請已同意！');
+                    });
+                })
+                .withFailureHandler(function(err) {
+                    alert('伺服器錯誤：' + err.message);
+                })
+                .atomicApproveExchange(requestId);
+        }
+
+        function rejectExchange(requestId) {
+            const request = exchangeRequests.find(req => String(req.id) === String(requestId));
+            if (!request || request.status !== 'pending') return;
+
+            if (!confirm(`確定拒絕 ${request.studentName} 的兌換申請嗎？`)) return;
+
+            google.script.run
+                .withSuccessHandler(function(result) {
+                    if (!result || !result.success) {
+                        alert('拒絕失敗：' + (result && result.error || '未知錯誤'));
+                        return;
+                    }
+                    _refreshScoreData(function() {
+                        updateExchangeRequests();
+                        updateTeacherExchangeHistory();
+                        alert('兌換申請已拒絕！');
+                    });
+                })
+                .withFailureHandler(function(err) {
+                    alert('伺服器錯誤：' + err.message);
+                })
+                .atomicRejectExchange(requestId);
+        }
+
+</script>

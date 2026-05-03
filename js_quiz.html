@@ -1,0 +1,649 @@
+<script>
+        // 搶分功能相關函數
+        function showStudentQuiz() {
+            if (currentUser !== 'student') return;
+            
+            document.getElementById('studentQuizModal').classList.remove('hidden');
+            updateStudentQuizList();
+            checkQuizCountdown();
+        }
+
+        function closeStudentQuizModal() {
+            document.getElementById('studentQuizModal').classList.add('hidden');
+            if (quizCountdown) {
+                clearInterval(quizCountdown);
+                quizCountdown = null;
+            }
+        }
+
+        function updateStudentQuizList() {
+            const container = document.getElementById('studentQuizList');
+            const now = new Date();
+            
+            // 篩選可參與的搶分活動
+            const availableQuizzes = quizzes.filter(quiz => {
+                if (quiz.status === 'ended') return false;
+                if (quiz.startType === 'scheduled') {
+                    const startTime = new Date(quiz.startDate + ' ' + quiz.startTime);
+                    return startTime <= now;
+                }
+                return quiz.status === 'active';
+            });
+            
+            if (availableQuizzes.length === 0) {
+                container.innerHTML = `
+                    <div class="text-center text-gray-500 py-8">
+                        <div class="text-4xl mb-2">⚡</div>
+                        <p>目前沒有搶分活動</p>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = availableQuizzes.map(quiz => {
+                // 查找學生是否作答過此題目（用字串比較 quizId 與 studentId）
+                const studentAnswer = quizAnswers.find(answer => 
+                    String(answer.quizId) === String(quiz.id) && String(answer.studentId) === String(currentStudent.id)
+                );
+                
+                const typeIcon = quiz.type === 'choice' ? '📝' : '💭';
+                const typeText = quiz.type === 'choice' ? '選擇題' : '問答題';
+                
+                return `
+                    <div class="bg-white rounded-xl p-6 border border-gray-200 card-shadow">
+                        <div class="flex justify-between items-start mb-4">
+                            <div>
+                                <div class="flex items-center space-x-2 mb-2">
+                                    <span class="text-2xl">${typeIcon}</span>
+                                    <h3 class="text-xl font-bold text-gray-800">${quiz.title}</h3>
+                                    <span class="text-sm px-2 py-1 rounded-full bg-blue-100 text-blue-700">${typeText}</span>
+                                </div>
+                                <div class="text-sm text-gray-600 mb-2">前 ${quiz.winners} 名可得分</div>
+                                <div class="text-sm text-gray-500">
+                                    ${quiz.startType === 'immediate' ? '立即開始' : `開始時間：${quiz.startDate} ${quiz.startTime}`}
+                                </div>
+                            </div>
+                            <div class="text-right">
+                                ${studentAnswer ? `
+                                    <div class="text-${studentAnswer.isCorrect ? 'green' : 'red'}-600 font-semibold">
+                                        ${studentAnswer.isCorrect ? '✅ 答對了' : '❌ 答錯了'}
+                                        ${studentAnswer.rank ? ` (第${studentAnswer.rank}名)` : ''}
+                                    </div>
+                                ` : `
+                                    <div class="text-red-600 font-semibold">⚡ 搶答中</div>
+                                `}
+                            </div>
+                        </div>
+                        
+                        <div class="bg-gray-50 rounded-lg p-4 mb-4">
+                            <div class="font-semibold text-gray-800 mb-2">題目：</div>
+                            <p class="text-gray-700 whitespace-pre-wrap">${quiz.question}</p>
+                        </div>
+                        
+                        ${studentAnswer ? `
+                            <div class="p-4 rounded-lg ${studentAnswer.isCorrect ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}">
+                                <div class="flex items-center justify-between mb-2">
+                                    <div class="font-semibold ${studentAnswer.isCorrect ? 'text-green-800' : 'text-red-800'}">
+                                        您的答案：${studentAnswer.answer}
+                                    </div>
+                                    <div class="text-sm text-gray-500">${new Date(studentAnswer.submitTime).toLocaleString('zh-TW')}</div>
+                                </div>
+                                ${studentAnswer.isCorrect ? `
+                                    <div class="text-sm text-green-700">
+                                        🎉 恭喜答對！${studentAnswer.rank ? `獲得第${studentAnswer.rank}名，得到 ${studentAnswer.scoreAwarded} 分！` : ''}
+                                    </div>
+                                ` : `
+                                    <div class="text-sm text-red-700">
+                                        😔 答案錯誤，正確答案是：${quiz.answer}
+                                    </div>
+                                `}
+                            </div>
+                        ` : `
+                            <!-- 作答區域 -->
+                            <div class="border-t pt-4">
+                                ${quiz.type === 'choice' ? `
+                                    <div class="space-y-2 mb-4">
+                                        ${Object.entries(quiz.choices).filter(([key, value]) => value).map(([key, value]) => `
+                                            <label class="flex items-center space-x-3 p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer">
+                                                <input type="radio" name="quiz-${quiz.id}" value="${key}" class="text-blue-500">
+                                                <span class="font-medium text-gray-700">${key}.</span>
+                                                <span class="text-gray-700">${value}</span>
+                                            </label>
+                                        `).join('')}
+                                    </div>
+                                ` : `
+                                    <div class="mb-4">
+                                        <textarea id="textAnswer-${quiz.id}" placeholder="請輸入您的答案..." rows="3" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"></textarea>
+                                    </div>
+                                `}
+                                <button onclick="submitQuizAnswer('${quiz.id}')" class="w-full bg-red-500 hover:bg-red-600 text-white py-3 px-6 rounded-lg transition-colors font-semibold">
+                                    🚀 提交答案
+                                </button>
+                            </div>
+                        `}
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function checkQuizCountdown() {
+            // 每次檢查時都重新獲取當前時間
+            const now = new Date();
+            
+            // 檢查預約的搶分活動是否到時間需要啟動
+            quizzes.forEach(quiz => {
+                if (quiz.startType === 'scheduled' && quiz.status === 'scheduled') {
+                    const startTime = new Date(quiz.startDate + ' ' + quiz.startTime);
+                    if (startTime <= now) {
+                        // 時間到了，啟動搶分活動
+                        quiz.status = 'active';
+                        google.script.run.setStorage('quizzes', quizzes);
+                    }
+                }
+            });
+            
+            const scheduledQuizzes = quizzes.filter(quiz => 
+                quiz.startType === 'scheduled' && 
+                quiz.status === 'scheduled' &&
+                new Date(quiz.startDate + ' ' + quiz.startTime) > now
+            );
+            
+            if (scheduledQuizzes.length === 0) {
+                document.getElementById('quizCountdownSection').classList.add('hidden');
+                if (quizCountdown) {
+                    clearInterval(quizCountdown);
+                    quizCountdown = null;
+                }
+                return;
+            }
+            
+            // 找到最近的搶分活動
+            const nextQuiz = scheduledQuizzes.sort((a, b) => 
+                new Date(a.startDate + ' ' + a.startTime) - new Date(b.startDate + ' ' + b.startTime)
+            )[0];
+            
+            document.getElementById('countdownQuizTitle').textContent = nextQuiz.title;
+            document.getElementById('quizCountdownSection').classList.remove('hidden');
+            
+            // 開始倒數計時
+            if (quizCountdown) clearInterval(quizCountdown);
+            
+            quizCountdown = setInterval(() => {
+                // 每秒都重新獲取當前時間，確保時間準確
+                const currentTime = new Date();
+                const startTime = new Date(nextQuiz.startDate + ' ' + nextQuiz.startTime);
+                const timeDiff = startTime - currentTime;
+                
+                if (timeDiff <= 0) {
+                    // 時間到了，啟動搶分活動
+                    nextQuiz.status = 'active';
+                    google.script.run.setStorage('quizzes', quizzes);
+                    
+                    clearInterval(quizCountdown);
+                    quizCountdown = null;
+                    document.getElementById('quizCountdownSection').classList.add('hidden');
+                    updateStudentQuizList();
+                    return;
+                }
+                
+                const hours = Math.floor(timeDiff / (1000 * 60 * 60));
+                const minutes = Math.floor((timeDiff % (1000 * 60 * 60)) / (1000 * 60));
+                const seconds = Math.floor((timeDiff % (1000 * 60)) / 1000);
+                
+                document.getElementById('countdownDisplay').textContent = 
+                    `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+            }, 1000);
+        }
+
+        function submitQuizAnswer(quizId) {
+            const quiz = quizzes.find(q => String(q.id) === String(quizId));
+            if (!quiz || !currentStudent) return;
+
+            // 本地快速檢查（stale-safe，後端會再次確認）
+            const hasAnswered = quizAnswers.some(a =>
+                String(a.quizId) === String(quizId) && String(a.studentId) === String(currentStudent.id)
+            );
+            if (hasAnswered) {
+                alert('您已經作答過此題目');
+                return;
+            }
+
+            let userAnswer;
+            if (quiz.type === 'choice') {
+                const selectedOption = document.querySelector(`input[name="quiz-${quizId}"]:checked`);
+                if (!selectedOption) { alert('請選擇一個答案'); return; }
+                userAnswer = selectedOption.value;
+            } else {
+                const textArea = document.getElementById(`textAnswer-${quizId}`);
+                userAnswer = textArea.value.trim();
+                if (!userAnswer) { alert('請輸入答案'); return; }
+            }
+
+            google.script.run
+                .withSuccessHandler(function(result) {
+                    if (!result) { alert('提交失敗，請重試'); return; }
+                    if (result.error === 'already_answered') { alert('您已經作答過此題目'); return; }
+                    if (!result.success) { alert('提交失敗：' + (result.error || '未知錯誤')); return; }
+
+                    if (result.isCorrect && result.rank > 0) {
+                        alert(`答對了！您是第 ${result.rank} 名，獲得 ${result.scoreAwarded} 積分！`);
+                    } else if (result.isCorrect) {
+                        alert('答對了！但得獎名額已滿，未獲得積分。');
+                    } else {
+                        alert('答錯了，請繼續加油！');
+                    }
+
+                    _refreshScoreData(function() {
+                        updateStudentQuizList();
+                    });
+                })
+                .withFailureHandler(function(err) {
+                    alert('伺服器錯誤：' + err.message);
+                })
+                .atomicSubmitQuizAnswer(
+                    quizId,
+                    currentStudent.id,
+                    currentStudent.name,
+                    currentStudent.groupName,
+                    userAnswer
+                );
+        }
+
+        // 教師搶分管理功能
+        function showCreateQuizForm() {
+            document.getElementById('createQuizForm').classList.remove('hidden');
+            document.getElementById('quizHistorySection').classList.add('hidden');
+            
+            // 設定預設日期時間為當前時間的下一個小時
+            const now = new Date();
+            const nextHour = new Date(now);
+            nextHour.setHours(nextHour.getHours() + 1);
+            nextHour.setMinutes(0);
+            nextHour.setSeconds(0);
+            
+            // 格式化日期和時間
+            const year = nextHour.getFullYear();
+            const month = String(nextHour.getMonth() + 1).padStart(2, '0');
+            const day = String(nextHour.getDate()).padStart(2, '0');
+            const hours = String(nextHour.getHours()).padStart(2, '0');
+            const minutes = String(nextHour.getMinutes()).padStart(2, '0');
+            
+            document.getElementById('startDate').value = `${year}-${month}-${day}`;
+            document.getElementById('startTime').value = `${hours}:${minutes}`;
+            
+            // 監聽題型變化
+            document.getElementById('quizType').addEventListener('change', function() {
+                const isChoice = this.value === 'choice';
+                document.getElementById('choiceOptions').style.display = isChoice ? 'block' : 'none';
+                document.getElementById('textAnswer').style.display = isChoice ? 'none' : 'block';
+            });
+            
+            // 監聽前幾名變化
+            document.getElementById('quizWinners').addEventListener('input', function() {
+                updateScoreSettings(parseInt(this.value) || 1);
+            });
+            
+            // 監聽開始時間類型變化
+            document.querySelectorAll('input[name="startType"]').forEach(radio => {
+                radio.addEventListener('change', function() {
+                    document.getElementById('scheduledTime').style.display = 
+                        this.value === 'scheduled' ? 'block' : 'none';
+                });
+            });
+            
+            // 初始化得分設定
+            updateScoreSettings(1);
+        }
+
+        function hideCreateQuizForm() {
+            document.getElementById('createQuizForm').classList.add('hidden');
+            clearQuizForm();
+        }
+
+        function clearQuizForm() {
+            document.getElementById('quizType').value = 'choice';
+            document.getElementById('quizWinners').value = '';
+            document.getElementById('quizQuestion').value = '';
+            document.getElementById('choiceA').value = '';
+            document.getElementById('choiceB').value = '';
+            document.getElementById('choiceC').value = '';
+            document.getElementById('choiceD').value = '';
+            document.getElementById('quizAnswer').value = '';
+            document.querySelector('input[name="correctChoice"]:checked').checked = false;
+            document.querySelector('input[name="startType"][value="immediate"]').checked = true;
+            document.getElementById('scheduledTime').style.display = 'none';
+            document.getElementById('choiceOptions').style.display = 'block';
+            document.getElementById('textAnswer').style.display = 'none';
+        }
+
+        function updateScoreSettings(winners) {
+            const container = document.getElementById('scoreSettings');
+            container.innerHTML = '';
+            
+            for (let i = 1; i <= winners; i++) {
+                container.innerHTML += `
+                    <div class="flex items-center space-x-2">
+                        <span class="text-sm text-gray-600 w-16">第${i}名：</span>
+                        <input type="number" id="score${i}" placeholder="分數" min="1" class="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500">
+                    </div>
+                `;
+            }
+        }
+
+        function createQuiz() {
+            const type = document.getElementById('quizType').value;
+            const winners = parseInt(document.getElementById('quizWinners').value);
+            const question = document.getElementById('quizQuestion').value.trim();
+            const startType = document.querySelector('input[name="startType"]:checked').value;
+            
+            if (!winners || !question) {
+                alert('請填寫所有必要欄位');
+                return;
+            }
+            
+            if (winners < 1 || winners > 10) {
+                alert('前幾名得分必須在 1-10 之間');
+                return;
+            }
+            
+            // 收集得分設定
+            const scores = {};
+            for (let i = 1; i <= winners; i++) {
+                const score = parseInt(document.getElementById(`score${i}`).value);
+                if (!score || score < 1) {
+                    alert(`請設定第${i}名的分數`);
+                    return;
+                }
+                scores[i] = score;
+            }
+            
+            let answer, choices;
+            
+            if (type === 'choice') {
+                // 選擇題
+                const correctChoice = document.querySelector('input[name="correctChoice"]:checked');
+                if (!correctChoice) {
+                    alert('請選擇正確答案');
+                    return;
+                }
+                
+                choices = {
+                    A: document.getElementById('choiceA').value.trim(),
+                    B: document.getElementById('choiceB').value.trim(),
+                    C: document.getElementById('choiceC').value.trim(),
+                    D: document.getElementById('choiceD').value.trim()
+                };
+                
+                // 檢查至少有兩個選項
+                const filledChoices = Object.values(choices).filter(choice => choice);
+                if (filledChoices.length < 2) {
+                    alert('至少需要填寫兩個選項');
+                    return;
+                }
+                
+                answer = correctChoice.value;
+            } else {
+                // 問答題
+                answer = document.getElementById('quizAnswer').value.trim();
+                if (!answer) {
+                    alert('請輸入標準答案');
+                    return;
+                }
+            }
+            
+            let startDate, startTime;
+            if (startType === 'scheduled') {
+                startDate = document.getElementById('startDate').value;
+                startTime = document.getElementById('startTime').value;
+                
+                if (!startDate || !startTime) {
+                    alert('請設定開始日期和時間');
+                    return;
+                }
+                
+                const scheduledDateTime = new Date(startDate + ' ' + startTime);
+                if (scheduledDateTime <= new Date()) {
+                    alert('開始時間必須是未來時間');
+                    return;
+                }
+            }
+            
+            const quiz = {
+                id: Date.now(),
+                title: `${type === 'choice' ? '選擇題' : '問答題'}搶分 - ${new Date().toLocaleString('zh-TW')}`,
+                type: type,
+                question: question,
+                answer: answer,
+                choices: choices,
+                choiceA: (choices && choices.A) ? choices.A : '',
+                choiceB: (choices && choices.B) ? choices.B : '',
+                choiceC: (choices && choices.C) ? choices.C : '',
+                choiceD: (choices && choices.D) ? choices.D : '',
+                correct: (answer || ''),
+                winners: winners,
+                scores: scores,
+                startType: startType,
+                startDate: startDate,
+                startTime: (startType === 'immediate' ? new Date().toISOString() : startTime),
+                status: startType === 'immediate' ? 'active' : 'scheduled',
+                createDate: new Date().toLocaleString('zh-TW'),
+                endDate: null
+            };
+            
+            quizzes.push(quiz);
+            google.script.run.setStorage('quizzes', quizzes);
+            
+            hideCreateQuizForm();
+            updateCurrentQuizList();
+            alert('搶分活動建立成功！');
+        }
+
+        function updateCurrentQuizList() {
+            const container = document.getElementById('currentQuizList');
+            const activeQuizzes = quizzes.filter(quiz => quiz.status !== 'ended');
+            
+            if (activeQuizzes.length === 0) {
+                container.innerHTML = `
+                    <div class="text-center text-gray-500 py-8">
+                        <div class="text-4xl mb-2">⚡</div>
+                        <p>尚無搶分活動</p>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = activeQuizzes.map(quiz => {
+                const typeIcon = quiz.type === 'choice' ? '📝' : '💭';
+                const typeText = quiz.type === 'choice' ? '選擇題' : '問答題';
+                const statusText = quiz.status === 'active' ? '進行中' : '預約中';
+                const statusColor = quiz.status === 'active' ? 'text-green-600' : 'text-yellow-600';
+                
+                // 統計作答情況
+                // 用字串比較 quizId 避免類型不一致
+                const totalAnswers = quizAnswers.filter(answer => String(answer.quizId) === String(quiz.id)).length;
+                
+                return `
+                    <div class="bg-white rounded-xl p-6 border border-gray-200 card-shadow">
+                        <div class="flex justify-between items-start mb-4">
+                            <div>
+                                <div class="flex items-center space-x-2 mb-2">
+                                    <span class="text-2xl">${typeIcon}</span>
+                                    <h3 class="text-xl font-bold text-gray-800">${quiz.title}</h3>
+                                    <span class="text-sm px-2 py-1 rounded-full bg-blue-100 text-blue-700">${typeText}</span>
+                                    <span class="text-sm px-2 py-1 rounded-full bg-gray-100 ${statusColor}">${statusText}</span>
+                                </div>
+                                <div class="text-sm text-gray-600 mb-2">前 ${quiz.winners} 名可得分 | 已有 ${totalAnswers} 人作答</div>
+                                <div class="text-sm text-gray-500">
+                                    建立時間：${quiz.createDate}
+                                    ${quiz.startType === 'scheduled' ? ` | 開始時間：${quiz.startDate} ${quiz.startTime}` : ''}
+                                </div>
+                            </div>
+                            <div class="flex space-x-2">
+                                <button onclick="viewQuizAnswers('${quiz.id}')" class="bg-blue-500 hover:bg-blue-600 text-white px-3 py-2 rounded-lg transition-colors text-sm">
+                                    查看作答
+                                </button>
+                                <button onclick="endQuiz('${quiz.id}')" class="bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded-lg transition-colors text-sm">
+                                    結束活動
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div class="bg-gray-50 rounded-lg p-4">
+                            <div class="font-semibold text-gray-800 mb-2">題目：</div>
+                            <p class="text-gray-700 whitespace-pre-wrap">${quiz.question}</p>
+                            
+                            ${quiz.type === 'choice' ? `
+                                <div class="mt-3">
+                                    <div class="font-semibold text-gray-800 mb-1">選項：</div>
+                                    ${Object.entries(quiz.choices).filter(([key, value]) => value).map(([key, value]) => 
+                                        `<div class="text-sm ${key === quiz.answer ? 'text-green-600 font-semibold' : 'text-gray-600'}">
+                                            ${key}. ${value} ${key === quiz.answer ? '(正確答案)' : ''}
+                                        </div>`
+                                    ).join('')}
+                                </div>
+                            ` : `
+                                <div class="mt-3">
+                                    <div class="font-semibold text-gray-800 mb-1">標準答案：</div>
+                                    <div class="text-green-600 font-semibold">${quiz.answer}</div>
+                                </div>
+                            `}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function viewQuizAnswers(quizId) {
+            const quiz = quizzes.find(q => String(q.id) === String(quizId));
+            if (!quiz) return;
+            
+            const answers = quizAnswers.filter(answer => String(answer.quizId) === String(quizId));
+            
+            if (answers.length === 0) {
+                alert('尚無學生作答');
+                return;
+            }
+            
+            // 建立作答結果視窗
+            let resultHTML = `搶分活動：${quiz.title}\n\n`;
+            
+            // 統計答對和答錯的學生
+            const correctAnswers = answers.filter(answer => answer.isCorrect);
+            const incorrectAnswers = answers.filter(answer => !answer.isCorrect);
+            
+            resultHTML += `總作答人數：${answers.length}\n`;
+            resultHTML += `答對人數：${correctAnswers.length}\n`;
+            resultHTML += `答錯人數：${incorrectAnswers.length}\n\n`;
+            
+            if (correctAnswers.length > 0) {
+                resultHTML += '✅ 答對學生（按作答時間排序）：\n';
+                correctAnswers
+                    // 按提交時間排序，使用 submitTime 欄位
+                    .sort((a, b) => new Date(a.submitTime) - new Date(b.submitTime))
+                    .forEach((answer, index) => {
+                        const rank = index + 1;
+                        const scoreAwarded = answer.scoreAwarded || 0;
+                        resultHTML += `${rank}. ${answer.studentName} (${answer.groupName}) - ${answer.answer}`;
+                        if (rank <= quiz.winners && scoreAwarded > 0) {
+                            resultHTML += ` [已得 ${scoreAwarded} 分]`;
+                        }
+                        // 將 ISO 時間轉為本地格式顯示
+                        resultHTML += `\n   時間：${new Date(answer.submitTime).toLocaleString('zh-TW')}\n`;
+                    });
+                resultHTML += '\n';
+            }
+            
+            if (incorrectAnswers.length > 0) {
+                resultHTML += '❌ 答錯學生：\n';
+                incorrectAnswers.forEach((answer, index) => {
+                    resultHTML += `${index + 1}. ${answer.studentName} (${answer.groupName}) - ${answer.answer}\n`;
+                    // 轉換 ISO 時間為本地格式
+                    resultHTML += `   時間：${new Date(answer.submitTime).toLocaleString('zh-TW')}\n`;
+                });
+                resultHTML += '\n';
+            }
+            
+            resultHTML += `正確答案：${quiz.answer}\n`;
+            
+            if (quiz.type === 'choice') {
+                resultHTML += '\n選項：\n';
+                Object.entries(quiz.choices).filter(([key, value]) => value).forEach(([key, value]) => {
+                    resultHTML += `${key}. ${value}${key === quiz.answer ? ' (正確答案)' : ''}\n`;
+                });
+            }
+            
+            alert(resultHTML);
+        }
+
+
+
+        function endQuiz(quizId) {
+            // 用字串比較找到對應的 quiz，避免 ID 型別不一致
+            const quiz = quizzes.find(q => String(q.id) === String(quizId));
+            if (!quiz) return;
+            
+            if (confirm(`確定要結束搶分活動「${quiz.title}」嗎？`)) {
+                quiz.status = 'ended';
+                quiz.endDate = new Date().toLocaleString('zh-TW');
+                
+                google.script.run.setStorage('quizzes', quizzes);
+                updateCurrentQuizList();
+                alert('搶分活動已結束！');
+            }
+        }
+
+        function showQuizHistory() {
+            document.getElementById('createQuizForm').classList.add('hidden');
+            document.getElementById('quizHistorySection').classList.remove('hidden');
+            updateQuizHistory();
+        }
+
+        function hideQuizHistory() {
+            document.getElementById('quizHistorySection').classList.add('hidden');
+        }
+
+        function updateQuizHistory() {
+            const container = document.getElementById('quizHistoryList');
+            const endedQuizzes = quizzes.filter(quiz => quiz.status === 'ended');
+            
+            if (endedQuizzes.length === 0) {
+                container.innerHTML = `
+                    <div class="text-center text-gray-500 py-8">
+                        <div class="text-4xl mb-2">📊</div>
+                        <p>尚無活動記錄</p>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = endedQuizzes.map(quiz => {
+                const typeIcon = quiz.type === 'choice' ? '📝' : '💭';
+                const typeText = quiz.type === 'choice' ? '選擇題' : '問答題';
+                // 用字串比較 quizId 避免類型不一致
+                const totalAnswers = quizAnswers.filter(answer => String(answer.quizId) === String(quiz.id)).length;
+                
+                return `
+                    <div class="bg-white rounded-xl p-4 border border-gray-200">
+                        <div class="flex justify-between items-start mb-3">
+                            <div>
+                                <div class="flex items-center space-x-2 mb-1">
+                                    <span class="text-xl">${typeIcon}</span>
+                                    <h4 class="font-semibold text-gray-800">${quiz.title}</h4>
+                                    <span class="text-xs px-2 py-1 rounded-full bg-gray-100 text-gray-600">${typeText}</span>
+                                </div>
+                                <div class="text-sm text-gray-600">
+                                    建立：${quiz.createDate} | 結束：${quiz.endDate}
+                                </div>
+                                <div class="text-sm text-gray-500">
+                                    共 ${totalAnswers} 人參與 | 前 ${quiz.winners} 名得分
+                                </div>
+                            </div>
+                            <button onclick="viewQuizAnswers('${quiz.id}')" class="bg-gray-500 hover:bg-gray-600 text-white px-3 py-2 rounded-lg transition-colors text-sm">
+                                查看結果
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+</script>

@@ -1,0 +1,41 @@
+<script>
+        // 全域變數
+        let currentUser = null;
+        let currentStudent = null;
+        let groups = [];
+        let students = [];
+        let announcements = [];
+        let classTitle = '班級管理系統';
+        let loginAttempts = 0;
+        let lockoutTime = 0;
+        let teacherPassword = 'hres';
+        let studentMessages = [];
+        let currentMessageFilter = 'all';
+        let currentRankingMode = 'individual';
+        let scoreHistory = [];
+        let currentHistoryFilter = 'all';
+        let currentStudentFilter = '';
+        let rewards = [];
+        let exchangeRequests = [];
+        let quizzes = [];
+        let quizAnswers = [];
+        let currentQuiz = null;
+        let quizCountdown = null;
+
+
+        // 初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            document.getElementById('classTitle').textContent = classTitle;
+            document.getElementById('mainContent').classList.remove('hidden');
+            checkLockout();
+            loadData();
+            
+            // 每30秒檢查一次搶分活動狀態
+            setInterval(() => {
+                if (currentUser === 'student') {
+                    checkQuizCountdown();
+                }
+            }, 30000);
+        });
+
+</script>

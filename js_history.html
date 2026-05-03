@@ -1,0 +1,240 @@
+<script>
+        // 分數記錄管理功能
+        function updateScoreHistoryFilter() {
+            const studentFilter = document.getElementById('studentHistoryFilter');
+            studentFilter.innerHTML = '<option value="">選擇學生篩選</option>';
+            
+            students.forEach(student => {
+                studentFilter.innerHTML += `<option value="${student.id}">${student.name} (${student.groupName})</option>`;
+            });
+            
+            // 添加事件監聽器
+            studentFilter.addEventListener('change', function() {
+                currentStudentFilter = this.value;
+                updateScoreHistory();
+            });
+        }
+
+        function filterScoreHistory(filter) {
+            currentHistoryFilter = filter;
+            
+            // 更新按鈕樣式
+            document.getElementById('historyFilterAll').className = 'px-4 py-2 rounded-lg bg-gray-200 text-gray-700 hover:bg-gray-300 transition-colors';
+            document.getElementById('historyFilterGroup').className = 'px-4 py-2 rounded-lg bg-gray-200 text-gray-700 hover:bg-gray-300 transition-colors';
+            document.getElementById('historyFilterIndividual').className = 'px-4 py-2 rounded-lg bg-gray-200 text-gray-700 hover:bg-gray-300 transition-colors';
+            
+            if (filter === 'all') {
+                document.getElementById('historyFilterAll').className = 'px-4 py-2 rounded-lg bg-blue-500 text-white transition-colors';
+            } else if (filter === 'group') {
+                document.getElementById('historyFilterGroup').className = 'px-4 py-2 rounded-lg bg-blue-500 text-white transition-colors';
+            } else if (filter === 'individual') {
+                document.getElementById('historyFilterIndividual').className = 'px-4 py-2 rounded-lg bg-blue-500 text-white transition-colors';
+            }
+            
+            updateScoreHistory();
+        }
+
+        function updateScoreHistory() {
+            let filteredHistory = scoreHistory;
+            
+            // 按類型篩選
+            if (currentHistoryFilter === 'group') {
+                filteredHistory = filteredHistory.filter(record => record.type === 'group');
+            } else if (currentHistoryFilter === 'individual') {
+                filteredHistory = filteredHistory.filter(record => record.type === 'individual');
+            }
+            
+            // 按學生篩選
+            if (currentStudentFilter) {
+                filteredHistory = filteredHistory.filter(record => {
+                    if (record.type === 'individual') {
+                        return record.targetId == currentStudentFilter;
+                    } else {
+                        return record.affectedStudents.some(student => student.id == currentStudentFilter);
+                    }
+                });
+            }
+            
+            // 更新統計資訊
+            updateScoreStatistics(filteredHistory);
+            
+            // 更新記錄列表
+            const container = document.getElementById('scoreHistoryList');
+            
+            if (filteredHistory.length === 0) {
+                container.innerHTML = `
+                    <div class="text-center text-gray-500 py-8">
+                        <div class="text-4xl mb-2">📊</div>
+                        <p>尚無分數變化記錄</p>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = filteredHistory.map(record => {
+                const isPositive = record.scoreChange > 0;
+                const typeIcon = record.type === 'group' ? '👥' : '🌟';
+                const scoreIcon = isPositive ? '➕' : '➖';
+                const scoreColor = isPositive ? 'text-green-600' : 'text-red-600';
+                const bgColor = isPositive ? 'bg-green-50' : 'bg-red-50';
+                
+                return `
+                    <div class="border border-gray-200 rounded-xl p-4 ${bgColor}">
+                        <div class="flex justify-between items-start mb-3">
+                            <div class="flex items-center space-x-3">
+                                <div class="text-2xl">${typeIcon}</div>
+                                <div>
+                                    <div class="font-semibold text-gray-800">${record.targetName}</div>
+                                    <div class="text-sm text-gray-600">${record.reason}</div>
+                                    ${record.groupName ? `<div class="text-xs text-gray-500">${record.groupName}</div>` : ''}
+                                </div>
+                            </div>
+                            <div class="text-right">
+                                <div class="flex items-center space-x-2">
+                                    <span class="text-2xl ${scoreColor} font-bold">${scoreIcon} ${Math.abs(record.scoreChange)}</span>
+
+                                </div>
+                                <div class="text-xs text-gray-500 mt-1">${record.date}</div>
+                            </div>
+                        </div>
+                        
+                        <!-- 受影響的學生 -->
+                        <div class="mt-3 pt-3 border-t border-gray-300">
+                            <div class="text-sm text-gray-600 mb-2">受影響學生：</div>
+                            <div class="flex flex-wrap gap-2">
+                                ${record.affectedStudents.map(student => `
+                                    <span class="inline-flex items-center px-2 py-1 rounded-full text-xs ${isPositive ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">
+                                        ${student.name} (${scoreIcon}${Math.abs(student.scoreChange)})
+                                    </span>
+                                `).join('')}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function updateScoreStatistics(filteredHistory) {
+            const totalRecords = filteredHistory.length;
+            const positiveRecords = filteredHistory.filter(record => record.scoreChange > 0).length;
+            const negativeRecords = filteredHistory.filter(record => record.scoreChange < 0).length;
+            
+            // 計算今日記錄
+            const today = new Date().toLocaleDateString('zh-TW');
+            const todayRecords = filteredHistory.filter(record => record.date.includes(today)).length;
+            
+            document.getElementById('totalRecords').textContent = totalRecords;
+            document.getElementById('totalPositive').textContent = positiveRecords;
+            document.getElementById('totalNegative').textContent = negativeRecords;
+            document.getElementById('todayRecords').textContent = todayRecords;
+        }
+
+
+        // 學生分數變化記錄功能
+
+        function updateStudentScoreHistory(studentId) {
+            const container = document.getElementById('studentHistoryList');
+            
+            // 篩選該學生相關的分數記錄
+            let studentHistory = scoreHistory.filter(record => {
+                // 個人加分記錄
+                if (record.type === 'individual' && record.targetId == studentId) {
+                    return true;
+                }
+                // 小組加分記錄（影響到該學生）
+                if (record.type === 'group' && record.affectedStudents.some(s => s.id == studentId)) {
+                    return true;
+                }
+                // 搶分活動記錄
+                if (record.type === 'quiz' && record.targetId == studentId) {
+                    return true;
+                }
+                // 獎品兌換記錄
+                if (record.type === 'exchange' && record.targetId == studentId) {
+                    return true;
+                }
+                return false;
+            });
+            
+            // 按時間排序，最新的在前面
+            studentHistory.sort((a, b) => new Date(b.date) - new Date(a.date));
+            
+            // 只顯示最近10筆記錄
+            studentHistory = studentHistory.slice(0, 10);
+            
+            if (studentHistory.length === 0) {
+                container.innerHTML = `
+                    <div class="text-center text-gray-500 py-4">
+                        <div class="text-2xl mb-1">📊</div>
+                        <p class="text-sm">尚無分數變化記錄</p>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = studentHistory.map(record => {
+                const isPositive = record.scoreChange > 0;
+                const scoreIcon = isPositive ? '➕' : '➖';
+                const scoreColor = isPositive ? 'text-green-600' : 'text-red-600';
+                const bgColor = isPositive ? 'bg-green-50' : 'bg-red-50';
+                
+                // 獲取該學生在此記錄中的分數變化
+                let studentScoreChange = record.scoreChange;
+                if (record.type === 'group') {
+                    const affectedStudent = record.affectedStudents.find(s => s.id == studentId);
+                    if (affectedStudent) {
+                        studentScoreChange = affectedStudent.scoreChange;
+                    }
+                }
+                
+                // 根據記錄類型設置圖示和描述
+                let typeIcon, typeDescription;
+                switch (record.type) {
+                    case 'individual':
+                        typeIcon = '🌟';
+                        typeDescription = '個人';
+                        break;
+                    case 'group':
+                        typeIcon = '👥';
+                        typeDescription = '小組';
+                        break;
+                    case 'quiz':
+                        typeIcon = '⚡';
+                        typeDescription = '搶分';
+                        break;
+                    case 'exchange':
+                        typeIcon = '🎁';
+                        typeDescription = '兌換';
+                        break;
+                    default:
+                        typeIcon = '📝';
+                        typeDescription = '其他';
+                }
+                
+                return `
+                    <div class="border border-gray-200 rounded-lg p-3 ${bgColor}">
+                        <div class="flex justify-between items-start">
+                            <div class="flex items-start space-x-2">
+                                <div class="text-lg">${typeIcon}</div>
+                                <div class="flex-1">
+                                    <div class="text-sm font-medium text-gray-800">${record.reason}</div>
+                                    <div class="text-xs text-gray-600 mt-1">
+                                        <span class="inline-block px-2 py-1 rounded-full bg-gray-100 text-gray-600">${typeDescription}</span>
+                                        <span class="ml-2">${record.date}</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="text-right">
+                                <div class="flex items-center space-x-1">
+                                    <span class="text-lg ${scoreColor} font-bold">${scoreIcon}</span>
+                                    <span class="text-lg ${scoreColor} font-bold">${Math.abs(studentScoreChange)}</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // 學生獎品兌換功能
+</script>

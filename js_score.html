@@ -1,0 +1,287 @@
+<script>
+        // 小組加分
+        function addGroupScore() {
+            const groupId = document.getElementById('groupSelect').value;
+            const score = parseInt(document.getElementById('groupScore').value);
+            
+            if (!groupId || !score) return;
+
+            modifyGroupScore(groupId, score);
+        }
+
+        // 小組扣分
+        function subtractGroupScore() {
+            const groupId = document.getElementById('groupSelect').value;
+            const score = parseInt(document.getElementById('groupScore').value);
+            
+            if (!groupId || !score) return;
+
+            modifyGroupScore(groupId, -score);
+        }
+
+        // 修改小組分數
+        // 從伺服器重新載入積分相關資料（原子操作後呼叫）
+        function _refreshScoreData(callback) {
+            google.script.run
+                .withSuccessHandler(function(data) {
+                    if (!data) { if (callback) callback(); return; }
+                    if (data.students)        students        = data.students;
+                    if (data.groups)          groups          = data.groups;
+                    if (data.scoreHistory)    scoreHistory    = data.scoreHistory;
+                    if (data.quizAnswers)     quizAnswers     = data.quizAnswers;
+                    if (data.exchangeRequests) exchangeRequests = data.exchangeRequests;
+                    if (data.rewards)         rewards         = data.rewards;
+                    updateRankings();
+                    if (callback) callback();
+                })
+                .withFailureHandler(function(err) {
+                    console.error('_refreshScoreData failed:', err);
+                    if (callback) callback();
+                })
+                .getScoreRelatedData();
+        }
+
+        function modifyGroupScore(groupId, scoreChange) {
+            const group = groups.find(g => g.id == groupId);
+            if (!group) return;
+
+            document.getElementById('groupScore').value = '';
+            google.script.run
+                .withSuccessHandler(function(result) {
+                    if (!result || !result.success) {
+                        alert('小組積分更新失敗：' + (result && result.error || '未知錯誤'));
+                        return;
+                    }
+                    _refreshScoreData();
+                })
+                .withFailureHandler(function(err) {
+                    alert('伺服器錯誤：' + err.message);
+                })
+                .atomicModifyGroupScore(groupId, scoreChange, scoreChange > 0 ? '小組加分' : '小組扣分');
+        }
+
+        // 個人加分
+        function addStudentScore() {
+            const studentId = document.getElementById('studentSelect').value;
+            const score = parseInt(document.getElementById('studentScore').value);
+
+            if (!studentId || !score) return;
+
+            modifyStudentScore(studentId, score);
+        }
+
+        // 個人扣分
+        function subtractStudentScore() {
+            const studentId = document.getElementById('studentSelect').value;
+            const score = parseInt(document.getElementById('studentScore').value);
+
+            if (!studentId || !score) return;
+
+            modifyStudentScore(studentId, -score);
+        }
+
+        // 修改個人分數
+        function modifyStudentScore(studentId, scoreChange) {
+            const student = students.find(s => s.id == studentId);
+            if (!student) return;
+
+            document.getElementById('studentScore').value = '';
+            google.script.run
+                .withSuccessHandler(function(result) {
+                    if (!result || !result.success) {
+                        alert('積分更新失敗：' + (result && result.error || '未知錯誤'));
+                        return;
+                    }
+                    _refreshScoreData();
+                })
+                .withFailureHandler(function(err) {
+                    alert('伺服器錯誤：' + err.message);
+                })
+                .atomicModifyStudentScore(studentId, scoreChange, scoreChange > 0 ? '個人加分' : '個人扣分');
+        }
+
+        // 排行榜模式切換
+        function switchRankingMode(mode) {
+            currentRankingMode = mode;
+            
+            // 更新按鈕樣式
+            const groupBtn = document.getElementById('groupRankBtn');
+            const individualBtn = document.getElementById('individualRankBtn');
+            
+            // 重置所有按鈕樣式
+            groupBtn.className = 'px-4 py-2 rounded-lg bg-gray-200 text-gray-700 hover:bg-gray-300 transition-colors';
+            individualBtn.className = 'px-4 py-2 rounded-lg bg-gray-200 text-gray-700 hover:bg-gray-300 transition-colors';
+            
+            // 設置選中的按鈕樣式
+            if (mode === 'group') {
+                groupBtn.className = 'px-4 py-2 rounded-lg bg-blue-500 text-white transition-colors';
+            } else {
+                individualBtn.className = 'px-4 py-2 rounded-lg bg-blue-500 text-white transition-colors';
+            }
+            
+            // 先重置頒獎台，然後更新排行榜
+            resetPodium();
+            setTimeout(() => {
+                updateRankings();
+            }, 100);
+        }
+
+        // 更新排行榜
+        function updateRankings() {
+            if (currentRankingMode === 'group') {
+                updateGroupRankings();
+            } else {
+                updateIndividualRankings();
+            }
+        }
+
+        // 更新小組排行榜
+        function updateGroupRankings() {
+            if (groups.length === 0) {
+                resetPodium();
+                return;
+            }
+
+            const sortedGroups = [...groups].sort((a, b) => b.score - a.score);
+            updatePodiumDisplay(sortedGroups, 'group');
+        }
+
+        // 更新個人排行榜
+        function updateIndividualRankings() {
+            if (students.length === 0) {
+                resetPodium();
+                return;
+            }
+
+            const sortedStudents = [...students].sort((a, b) => b.score - a.score);
+            updatePodiumDisplay(sortedStudents, 'individual');
+        }
+
+        // 重置頒獎台
+        function resetPodium() {
+            // 隱藏所有頒獎台元素
+            for (let i = 1; i <= 3; i++) {
+                const infoElement = document.getElementById(`rank${i}Info`);
+                const podiumElement = document.getElementById(`podium${i}`);
+                
+                if (infoElement) {
+                    infoElement.style.opacity = '0';
+                    infoElement.style.transform = 'translateY(4px)';
+                }
+                
+                if (podiumElement) {
+                    podiumElement.style.transform = 'scaleY(0)';
+                    podiumElement.style.height = '0px';
+                }
+            }
+            
+            // 清空第四第五名
+            const otherRankings = document.getElementById('otherRankings');
+            if (otherRankings) {
+                otherRankings.innerHTML = `
+                    <div class="text-center text-gray-500 py-8">
+                        <div class="text-4xl mb-2">📊</div>
+                        <p id="emptyMessage">${currentRankingMode === 'group' ? '尚未建立小組' : '尚未建立學生'}</p>
+                    </div>
+                `;
+            }
+        }
+
+        // 更新頒獎台顯示
+        function updatePodiumDisplay(sortedData, type) {
+            // 先重置
+            resetPodium();
+            
+            if (sortedData.length === 0) return;
+            
+            // 只顯示前三名在頒獎台上
+            const topThree = sortedData.slice(0, 3);
+            
+            // 計算高度比例 - 基於分數差距
+            const maxScore = topThree.length > 0 ? topThree[0].score : 0;
+            const minScore = topThree.length > 0 ? Math.min(...topThree.map(item => item.score)) : 0;
+            const scoreRange = maxScore - minScore;
+            
+            // 設定高度範圍
+            const baseHeight = 80;  // 基礎高度
+            const maxExtraHeight = 60; // 最大額外高度
+            
+            setTimeout(() => {
+                // 同時開始所有頒獎台動畫
+                topThree.forEach((item, index) => {
+                    const rank = index + 1;
+                    
+                    // 計算相對高度
+                    let height = baseHeight;
+                    if (scoreRange > 0) {
+                        const scoreRatio = (item.score - minScore) / scoreRange;
+                        height = baseHeight + (maxExtraHeight * scoreRatio);
+                    }
+                    
+                    // 第一名額外加高
+                    if (rank === 1) {
+                        height += 20;
+                    }
+                    
+                    // 更新資訊
+                    const infoElement = document.getElementById(`rank${rank}Info`);
+                    const nameDiv = infoElement.children[1];
+                    const detailDiv = infoElement.children[2];
+                    const scoreDiv = infoElement.children[3];
+                    
+                    if (type === 'group') {
+                        nameDiv.textContent = item.name;
+                        detailDiv.textContent = ''; // 小組排行不顯示人數
+                    } else {
+                        nameDiv.textContent = item.name;
+                        detailDiv.textContent = ''; // 個人排行不顯示組名
+                    }
+                    scoreDiv.textContent = `${item.score} 分`;
+                    
+                    // 設置最終高度
+                    const podiumElement = document.getElementById(`podium${rank}`);
+                    podiumElement.style.height = `${height}px`;
+                    
+                    // 同時觸發所有動畫（無延遲差）
+                    setTimeout(() => {
+                        podiumElement.style.transform = 'scaleY(1)';
+                        infoElement.style.opacity = '1';
+                        infoElement.style.transform = 'translateY(0)';
+                    }, 300); // 統一延遲
+                });
+            }, 200);
+            
+            // 更新第四第五名（如果有的話）
+            setTimeout(() => {
+                updateOtherRankings(sortedData, type);
+            }, 1500);
+        }
+
+        // 更新第四第五名排行
+        function updateOtherRankings(sortedData, type) {
+            const container = document.getElementById('otherRankings');
+            const otherRanks = sortedData.slice(3, 5); // 只取第四第五名
+            
+            if (otherRanks.length === 0) {
+                container.innerHTML = '';
+                return;
+            }
+            
+            container.innerHTML = otherRanks.map((item, index) => {
+                const rank = index + 4; // 第四名開始
+                
+                return `
+                    <div class="rank-animation bg-gray-50 rounded-xl p-4 flex items-center justify-between opacity-0 transform translate-y-4" style="animation: slideInUp 0.6s ease-out ${index * 0.2}s forwards;">
+                        <div class="flex items-center space-x-4">
+                            <div class="text-2xl font-bold text-gray-600">${rank}</div>
+                            <div>
+                                <div class="font-semibold text-gray-800">${item.name}</div>
+                            </div>
+                        </div>
+                        <div class="text-2xl font-bold text-gray-800">${item.score} 分</div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+</script>

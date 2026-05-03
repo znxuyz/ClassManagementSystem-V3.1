@@ -1,0 +1,571 @@
+<script>
+
+        // 表格操作函數
+        function addTableRow() {
+            const tbody = document.getElementById('groupTableBody');
+            const header = document.getElementById('tableHeader');
+            const rowCount = tbody.children.length;
+            const columnCount = header.children.length - 2; // 扣除小組名稱和操作欄位
+            
+            const newRow = document.createElement('tr');
+            let rowHTML = `
+                <td class="px-2 py-2 border-t">
+                    <input type="text" placeholder="第${rowCount + 1}組" class="w-full px-1 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 text-sm">
+                </td>
+            `;
+            
+            // 根據目前的欄位數量動態生成學生欄位
+            for (let i = 1; i <= columnCount; i++) {
+                rowHTML += `
+                    <td class="px-2 py-2 border-t">
+                        <input type="text" placeholder="學生姓名" class="w-full px-1 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 text-sm">
+                    </td>
+                `;
+            }
+            
+            rowHTML += `
+                <td class="px-2 py-2 border-t text-center">
+                    <button onclick="removeTableRow(this)" class="text-red-500 hover:text-red-700">🗑️</button>
+                </td>
+            `;
+            
+            newRow.innerHTML = rowHTML;
+            tbody.appendChild(newRow);
+        }
+
+        function addStudentColumn() {
+            const header = document.getElementById('tableHeader');
+            const tbody = document.getElementById('groupTableBody');
+            const currentColumns = header.children.length - 2; // 扣除小組名稱和操作欄位
+            const newColumnNumber = currentColumns + 1;
+            
+            // 在表頭新增學生欄位（在操作欄位之前）
+            const newHeaderCell = document.createElement('th');
+            newHeaderCell.className = 'px-2 py-2 text-left font-semibold text-gray-700';
+            newHeaderCell.textContent = `學生${newColumnNumber}`;
+            header.insertBefore(newHeaderCell, header.lastElementChild);
+            
+            // 為每一行新增學生欄位
+            const rows = tbody.querySelectorAll('tr');
+            rows.forEach(row => {
+                const newCell = document.createElement('td');
+                newCell.className = 'px-2 py-2 border-t';
+                newCell.innerHTML = `
+                    <input type="text" placeholder="學生姓名" class="w-full px-1 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 text-sm">
+                `;
+                row.insertBefore(newCell, row.lastElementChild);
+            });
+        }
+
+        function removeStudentColumn() {
+            const header = document.getElementById('tableHeader');
+            const tbody = document.getElementById('groupTableBody');
+            const currentColumns = header.children.length - 2; // 扣除小組名稱和操作欄位
+            
+            // 至少要保留一個學生欄位
+            if (currentColumns <= 1) {
+                alert('至少需要保留一個學生欄位');
+                return;
+            }
+            
+            // 移除表頭最後一個學生欄位（操作欄位的前一個）
+            const lastStudentHeader = header.children[header.children.length - 2];
+            header.removeChild(lastStudentHeader);
+            
+            // 移除每一行的最後一個學生欄位
+            const rows = tbody.querySelectorAll('tr');
+            rows.forEach(row => {
+                const lastStudentCell = row.children[row.children.length - 2];
+                row.removeChild(lastStudentCell);
+            });
+        }
+
+        function removeTableRow(button) {
+            // 如果是按鈕呼叫（沒有參數），移除最後一行
+            if (!button) {
+                const tbody = document.getElementById('groupTableBody');
+                if (tbody.children.length > 1) {
+                    tbody.removeChild(tbody.lastElementChild);
+                } else {
+                    alert('至少需要保留一行');
+                }
+                return;
+            }
+            
+            // 如果是從行內刪除按鈕呼叫（有參數），移除該行
+            const tbody = document.getElementById('groupTableBody');
+            if (tbody.children.length > 1) {
+                button.closest('tr').remove();
+            } else {
+                alert('至少需要保留一行');
+            }
+        }
+
+
+
+        function createClassGroupsFromTable() {
+            const tbody = document.getElementById('groupTableBody');
+            const rows = tbody.querySelectorAll('tr');
+            
+            let successCount = 0;
+            let errorMessages = [];
+            
+            rows.forEach((row, index) => {
+                const groupInput = row.querySelector('td:first-child input');
+                const groupName = groupInput.value.trim();
+                
+                if (!groupName) {
+                    return; // 跳過沒有小組名稱的行
+                }
+                
+                // 收集該行所有學生姓名
+                const studentInputs = row.querySelectorAll('td:not(:first-child):not(:last-child) input');
+                const studentNames = [];
+                
+                studentInputs.forEach(input => {
+                    const name = input.value.trim();
+                    if (name) {
+                        studentNames.push(name);
+                    }
+                });
+                
+                if (studentNames.length === 0) {
+                    errorMessages.push(`第 ${index + 1} 行：小組 ${groupName} 沒有學生`);
+                    return;
+                }
+                
+                // 檢查是否有重複的學生
+                for (let studentName of studentNames) {
+                    if (students.find(s => s.name === studentName)) {
+                        errorMessages.push(`第 ${index + 1} 行：學生 ${studentName} 已存在`);
+                        return;
+                    }
+                }
+                
+                // 建立或找到小組
+                let group = groups.find(g => g.name === groupName);
+                if (!group) {
+                    group = {
+                        id: Date.now() + Math.random(),
+                        name: groupName,
+                        score: 0
+                    };
+                    groups.push(group);
+                }
+                
+                // 建立該組所有學生
+                studentNames.forEach(studentName => {
+                    students.push({
+                        id: Date.now() + Math.random() + Math.random(),
+                        name: studentName,
+                        groupId: group.id,
+                        groupName: groupName,
+                        score: 0
+                    });
+                    successCount++;
+                });
+            });
+            
+            if (errorMessages.length > 0) {
+                alert('建立過程中發現錯誤：\n' + errorMessages.join('\n'));
+            }
+            
+            if (successCount > 0) {
+                google.script.run.setStorage('groups', groups);
+                google.script.run.setStorage('students', students);
+                
+                // 清空表格
+                const tbody = document.getElementById('groupTableBody');
+                tbody.innerHTML = `
+                    <tr>
+                        <td class="px-2 py-2 border-t">
+                            <input type="text" placeholder="第一組" class="w-full px-1 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 text-sm">
+                        </td>
+                        <td class="px-2 py-2 border-t">
+                            <input type="text" placeholder="王小明" class="w-full px-1 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 text-sm">
+                        </td>
+                        <td class="px-2 py-2 border-t">
+                            <input type="text" placeholder="李小華" class="w-full px-1 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 text-sm">
+                        </td>
+                        <td class="px-2 py-2 border-t">
+                            <input type="text" placeholder="張小美" class="w-full px-1 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 text-sm">
+                        </td>
+                        <td class="px-2 py-2 border-t">
+                            <input type="text" placeholder="陳小強" class="w-full px-1 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 text-sm">
+                        </td>
+                        <td class="px-2 py-2 border-t">
+                            <input type="text" placeholder="林小雅" class="w-full px-1 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 text-sm">
+                        </td>
+                        <td class="px-2 py-2 border-t text-center">
+                            <button onclick="removeTableRow(this)" class="text-red-500 hover:text-red-700">🗑️</button>
+                        </td>
+                    </tr>
+                `;
+                
+                updateRankings();
+                updateSelects();
+                updateGroupStatus();
+                alert(`成功建立 ${successCount} 位學生！`);
+            }
+        }
+
+        // 更新分組狀況顯示
+        function updateGroupStatus() {
+            const container = document.getElementById('currentGroupStatus');
+            
+            if (groups.length === 0 || students.length === 0) {
+                container.innerHTML = `
+                    <div class="text-center text-gray-500 py-8">
+                        <div class="text-4xl mb-2">👥</div>
+                        <p>尚未建立分組</p>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = groups.map(group => {
+                // compare groupId as strings to avoid number/string mismatch
+                const groupStudents = students.filter(s => String(s.groupId) === String(group.id));
+                
+                return `
+                    <div class="bg-gray-50 rounded-xl p-4 border border-gray-200">
+                        <div class="flex items-center justify-between mb-3">
+                            <div class="flex items-center space-x-3">
+                                <h5 class="font-semibold text-gray-800 text-lg">${group.name}</h5>
+                                <span class="text-sm text-gray-500">(${groupStudents.length} 人)</span>
+                                <span class="text-sm font-medium text-blue-600">${group.score} 分</span>
+                            </div>
+                            <button onclick="deleteGroup('${group.id}')" class="text-red-500 hover:text-red-700 text-xl" title="刪除小組">🗑️</button>
+                        </div>
+                        
+                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                            ${groupStudents.map(student => `
+                                <div class="bg-white rounded-lg p-3 border border-gray-200 flex items-center justify-between">
+                                    <div class="flex items-center space-x-2">
+                                        <span class="text-gray-800">${student.name}</span>
+                                        <span class="text-xs text-gray-500">${student.score} 分</span>
+                                    </div>
+                                    <button onclick="deleteStudent('${student.id}')" class="text-red-500 hover:text-red-700 text-sm" title="刪除學生">🗑️</button>
+                                </div>
+                            `).join('')}
+                        </div>
+                        
+                        <!-- 新增學生到此組 -->
+                        <div class="mt-3 pt-3 border-t border-gray-300">
+                            <div class="flex space-x-2">
+                                <input type="text" id="newStudent-${group.id}" placeholder="新增學生到 ${group.name}" class="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <button onclick="addStudentToGroup('${group.id}')" class="bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-lg text-sm transition-colors">
+                                    ➕ 新增
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // 重新整理分組狀況
+        function refreshGroupStatus() {
+            updateGroupStatus();
+        }
+
+        // 編輯小組名稱
+        function editGroupName(groupId) {
+            console.log('編輯小組名稱，ID:', groupId);
+            const group = groups.find(g => g.id == groupId);
+            if (!group) {
+                console.log('找不到小組');
+                return;
+            }
+
+            const newName = prompt('請輸入新的小組名稱：', group.name);
+            if (newName && newName.trim() && newName.trim() !== group.name) {
+                const trimmedName = newName.trim();
+                
+                // 檢查是否有重複的小組名稱
+                if (groups.some(g => g.id != groupId && g.name === trimmedName)) {
+                    alert('小組名稱已存在，請使用其他名稱');
+                    return;
+                }
+
+                group.name = trimmedName;
+                
+                // 同時更新該組所有學生的 groupName
+                students.forEach(student => {
+                    if (student.groupId == groupId) {
+                        student.groupName = trimmedName;
+                    }
+                });
+
+                google.script.run.setStorage('groups', groups);
+                google.script.run.setStorage('students', students);
+                
+                updateGroupStatus();
+                updateRankings();
+                updateSelects();
+                alert('小組名稱已更新！');
+            }
+        }
+
+        // 刪除小組
+        function deleteGroup(groupId) {
+            console.log('刪除小組，ID:', groupId);
+            const group = groups.find(g => g.id.toString() === groupId.toString());
+            if (!group) {
+                console.log('找不到小組');
+                return;
+            }
+
+            const groupStudents = students.filter(s => s.groupId.toString() === groupId.toString());
+            
+            if (groupStudents.length > 0) {
+                if (!confirm(`確定要刪除小組「${group.name}」嗎？\n這將同時刪除該組的 ${groupStudents.length} 位學生。`)) {
+                    return;
+                }
+            } else {
+                if (!confirm(`確定要刪除小組「${group.name}」嗎？`)) {
+                    return;
+                }
+            }
+
+            // 刪除小組和該組所有學生
+            groups = groups.filter(g => g.id.toString() !== groupId.toString());
+            try { google.script.run.deleteStorage('groups', groupId); } catch(e) { console.error(e); }
+            students = students.filter(s => s.groupId.toString() !== groupId.toString());
+            try { groupStudents.forEach(function(s){ google.script.run.deleteStorage('students', s.id); }); } catch(e) { console.error(e); }
+
+            google.script.run.setStorage('groups', groups);
+            google.script.run.setStorage('students', students);
+            
+            updateGroupStatus();
+            updateRankings();
+            updateSelects();
+            alert('小組已刪除！');
+        }
+
+        // 編輯學生姓名
+        function editStudentName(studentId) {
+            console.log('編輯學生姓名，ID:', studentId);
+            const student = students.find(s => s.id == studentId);
+            if (!student) {
+                console.log('找不到學生');
+                return;
+            }
+
+            const newName = prompt('請輸入新的學生姓名：', student.name);
+            if (newName && newName.trim() && newName.trim() !== student.name) {
+                const trimmedName = newName.trim();
+                
+                // 檢查是否有重複的學生姓名
+                if (students.some(s => s.id != studentId && s.name === trimmedName)) {
+                    alert('學生姓名已存在，請使用其他姓名');
+                    return;
+                }
+
+                student.name = trimmedName;
+                google.script.run.setStorage('students', students);
+                
+                updateGroupStatus();
+                updateRankings();
+                updateSelects();
+                alert('學生姓名已更新！');
+            }
+        }
+
+        // 移動學生到其他組
+        function moveStudent(studentId) {
+            console.log('移動學生，ID:', studentId);
+            const student = students.find(s => s.id == studentId);
+            if (!student) {
+                console.log('找不到學生');
+                return;
+            }
+
+            // 建立其他小組的選項
+            const otherGroups = groups.filter(g => g.id != student.groupId);
+            if (otherGroups.length === 0) {
+                alert('沒有其他小組可以移動');
+                return;
+            }
+
+            let options = '請選擇要移動到的小組：\n';
+            otherGroups.forEach((group, index) => {
+                options += `${index + 1}. ${group.name}\n`;
+            });
+
+            const choice = prompt(options + '\n請輸入數字選擇：');
+            const choiceIndex = parseInt(choice) - 1;
+
+            if (choiceIndex >= 0 && choiceIndex < otherGroups.length) {
+                const targetGroup = otherGroups[choiceIndex];
+                
+                student.groupId = targetGroup.id;
+                student.groupName = targetGroup.name;
+                
+                google.script.run.setStorage('students', students);
+                
+                updateGroupStatus();
+                updateRankings();
+                updateSelects();
+                
+                alert(`${student.name} 已移動到 ${targetGroup.name}`);
+            } else {
+                alert('選擇無效，請重新操作');
+            }
+        }
+
+        // 刪除學生
+        function deleteStudent(studentId) {
+            console.log('刪除學生，ID:', studentId);
+            const student = students.find(s => s.id.toString() === studentId.toString());
+            if (!student) {
+                console.log('找不到學生');
+                return;
+            }
+
+            if (confirm(`確定要刪除學生「${student.name}」嗎？`)) {
+                students = students.filter(s => s.id.toString() !== studentId.toString());
+                try { google.script.run.deleteStorage('students', studentId); } catch(e) { console.error(e); }
+                google.script.run.setStorage('students', students);
+                
+                updateGroupStatus();
+                updateRankings();
+                updateSelects();
+                alert('學生已刪除！');
+            }
+        }
+
+        // 新增學生到指定小組
+        function addStudentToGroup(groupId) {
+            const input = document.getElementById(`newStudent-${groupId}`);
+            const studentName = input.value.trim();
+            
+            if (!studentName) {
+                alert('請輸入學生姓名');
+                return;
+            }
+
+            // 檢查是否有重複的學生姓名
+            if (students.some(s => s.name === studentName)) {
+                alert('學生姓名已存在');
+                input.value = '';
+                return;
+            }
+
+            const group = groups.find(g => g.id.toString() === groupId.toString());
+            if (!group) return;
+
+            const newStudent = {
+                id: Date.now() + Math.random(),
+                name: studentName,
+                groupId: group.id,
+                groupName: group.name,
+                score: 0
+            };
+
+            students.push(newStudent);
+            google.script.run.setStorage('students', students);
+            
+            input.value = '';
+            updateGroupStatus();
+            updateRankings();
+            updateSelects();
+        }
+
+        // 清空所有資料
+        function clearAllData() {
+            if (confirm('⚠️ 確定要完全重置班級嗎？\n\n此操作將永久刪除：\n• 所有學生資料和分數\n• 所有小組資料和分數\n• 所有課程公告和留言\n• 所有學生留言記錄\n• 班級名稱將重置為預設值\n\n⚠️ 此操作無法復原！請確認後再繼續。')) {
+                
+                // 如果有登入的學生，先登出
+                if (currentUser === 'student') {
+                    logout();
+                }
+                
+                // 完全清空所有資料
+                groups = [];
+                students = [];
+                announcements = [];
+                studentMessages = [];
+                
+                // 重置班級名稱為預設值
+                classTitle = '班級管理系統';
+                document.getElementById('classTitle').textContent = classTitle;
+                
+                // 清空本地存儲中的所有相關資料
+                google.script.run.setStorage('groups', []);
+                google.script.run.setStorage('students', []);
+                google.script.run.setStorage('announcements', []);
+                google.script.run.setStorage('studentMessages', []);
+                google.script.run.setStorage('classTitle', classTitle);
+                
+                // 重置所有全域變數
+                currentMessageFilter = 'all';
+                currentRankingMode = 'group';
+                
+                // 更新所有UI顯示
+                updateRankings();
+                updateSelects();
+                updateGroupStatus();
+                updateAnnouncements();
+                updateTeacherMessages();
+                
+                // 重置排行榜模式按鈕
+                switchRankingMode('group');
+                
+                // 重置留言篩選按鈕
+                filterMessages('all');
+                
+                // 確保回到首頁
+                showHomeTab();
+                
+                alert('✅ 班級資料已完全清空！\n系統已重置為初始狀態。');
+            }
+        }
+
+        // 刪除單一小組
+        function deleteGroup(groupId) {
+            const group = groups.find(g => g.id == groupId);
+            if (!group) return;
+
+            const groupStudents = students.filter(s => s.groupId == groupId);
+            
+            if (groupStudents.length > 0) {
+                if (!confirm(`確定要刪除小組「${group.name}」嗎？\n這將同時刪除該組的 ${groupStudents.length} 位學生。`)) {
+                    return;
+                }
+            } else {
+                if (!confirm(`確定要刪除小組「${group.name}」嗎？`)) {
+                    return;
+                }
+            }
+
+            // 刪除小組和該組所有學生
+            groups = groups.filter(g => g.id != groupId);
+            students = students.filter(s => s.groupId != groupId);
+
+            google.script.run.setStorage('groups', groups);
+            google.script.run.setStorage('students', students);
+            
+            updateGroupStatus();
+            updateRankings();
+            updateSelects();
+            alert('小組已刪除！');
+        }
+
+        // 更新選擇器
+        function updateSelects() {
+            const groupSelect = document.getElementById('groupSelect');
+            const studentSelect = document.getElementById('studentSelect');
+
+            groupSelect.innerHTML = '<option value="">選擇小組</option>';
+            groups.forEach(group => {
+                groupSelect.innerHTML += `<option value="${group.id}">${group.name}</option>`;
+            });
+
+            studentSelect.innerHTML = '<option value="">選擇學生</option>';
+            students.forEach(student => {
+                studentSelect.innerHTML += `<option value="${student.id}">${student.name} (${student.groupName})</option>`;
+            });
+        }
+
+</script>

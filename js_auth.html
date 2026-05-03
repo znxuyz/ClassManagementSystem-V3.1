@@ -1,0 +1,373 @@
+<script>
+        // 檢查是否被鎖定
+        function checkLockout() {
+            const now = Date.now();
+            if (lockoutTime > now) {
+                const remainingTime = Math.ceil((lockoutTime - now) / 60000);
+                document.getElementById('lockoutMessage').textContent = `登入失敗次數過多，請等待 ${remainingTime} 分鐘後再試`;
+                document.getElementById('lockoutMessage').classList.remove('hidden');
+                document.getElementById('teacherPassword').disabled = true;
+                
+                setTimeout(checkLockout, 60000);
+            } else {
+                document.getElementById('lockoutMessage').classList.add('hidden');
+                document.getElementById('teacherPassword').disabled = false;
+                if (lockoutTime > 0) {
+                    loginAttempts = 0;
+                    lockoutTime = 0;
+                    google.script.run.setStorage('loginAttempts', '0');
+                    google.script.run.setStorage('lockoutTime', '0');
+                }
+            }
+        }
+
+        // 登入相關函數
+        function showStudentLogin() {
+            document.getElementById('studentLoginModal').classList.remove('hidden');
+        }
+
+        function showTeacherLogin() {
+            if (lockoutTime > Date.now()) {
+                return;
+            }
+            document.getElementById('teacherLoginModal').classList.remove('hidden');
+        }
+
+        function closeLoginModal() {
+            document.getElementById('studentLoginModal').classList.add('hidden');
+            document.getElementById('teacherLoginModal').classList.add('hidden');
+            document.getElementById('teacherPassword').value = '';
+            document.getElementById('studentNameInput').value = '';
+            document.getElementById('loginError').classList.add('hidden');
+            document.getElementById('studentLoginError').classList.add('hidden');
+        }
+
+        // 修改密碼相關函數
+        function showChangePasswordModal() {
+            document.getElementById('changePasswordModal').classList.remove('hidden');
+        }
+
+        function closeChangePasswordModal() {
+            document.getElementById('changePasswordModal').classList.add('hidden');
+            document.getElementById('oldPassword').value = '';
+            document.getElementById('newPassword').value = '';
+            document.getElementById('confirmPassword').value = '';
+            document.getElementById('changePasswordError').classList.add('hidden');
+            document.getElementById('changePasswordSuccess').classList.add('hidden');
+        }
+
+        function changePassword() {
+            const oldPassword = document.getElementById('oldPassword').value;
+            const newPassword = document.getElementById('newPassword').value;
+            const confirmPassword = document.getElementById('confirmPassword').value;
+
+            // 清除之前的訊息
+            document.getElementById('changePasswordError').classList.add('hidden');
+            document.getElementById('changePasswordSuccess').classList.add('hidden');
+
+            // 驗證舊密碼
+            if (oldPassword !== teacherPassword) {
+                document.getElementById('changePasswordError').textContent = '舊密碼錯誤';
+                document.getElementById('changePasswordError').classList.remove('hidden');
+                return;
+            }
+
+            // 驗證新密碼
+            if (!newPassword || newPassword.length < 3) {
+                document.getElementById('changePasswordError').textContent = '新密碼至少需要3個字元';
+                document.getElementById('changePasswordError').classList.remove('hidden');
+                return;
+            }
+
+            // 驗證密碼確認
+            if (newPassword !== confirmPassword) {
+                document.getElementById('changePasswordError').textContent = '新密碼與確認密碼不一致';
+                document.getElementById('changePasswordError').classList.remove('hidden');
+                return;
+            }
+
+            // 更新密碼
+            teacherPassword = newPassword;
+            google.script.run.setStorage('teacherPassword', teacherPassword);
+
+            // 顯示成功訊息
+            document.getElementById('changePasswordSuccess').textContent = '密碼修改成功！';
+            document.getElementById('changePasswordSuccess').classList.remove('hidden');
+
+            // 2秒後關閉視窗
+            setTimeout(() => {
+                closeChangePasswordModal();
+            }, 2000);
+        }
+
+        function loginAsStudent() {
+            const studentName = document.getElementById('studentNameInput').value.trim();
+            if (!studentName) {
+                document.getElementById('studentLoginError').textContent = '請輸入您的姓名';
+                document.getElementById('studentLoginError').classList.remove('hidden');
+                return;
+            }
+
+            const student = students.find(s => s.name === studentName);
+            if (!student) {
+                document.getElementById('studentLoginError').textContent = '找不到此學生，請確認姓名是否正確';
+                document.getElementById('studentLoginError').classList.remove('hidden');
+                return;
+            }
+
+            currentUser = 'student';
+            currentStudent = student;
+            document.getElementById('userMode').textContent = `👨‍🎓 ${student.name}`;
+            closeLoginModal();
+            updateUI();
+        }
+
+        function loginAsTeacher() {
+            if (lockoutTime > Date.now()) {
+                return;
+            }
+
+            const password = document.getElementById('teacherPassword').value;
+            if (password === teacherPassword) {
+                currentUser = 'teacher';
+                currentStudent = null;
+                document.getElementById('userMode').textContent = '👩‍🏫 教師';
+                loginAttempts = 0;
+                google.script.run.setStorage('loginAttempts', '0');
+                closeLoginModal();
+                updateUI();
+            } else {
+                loginAttempts++;
+                google.script.run.setStorage('loginAttempts', loginAttempts.toString());
+                
+                if (loginAttempts >= 3) {
+                    lockoutTime = Date.now() + 10 * 60 * 1000; // 10分鐘
+                    google.script.run.setStorage('lockoutTime', lockoutTime.toString());
+                    checkLockout();
+                } else {
+                    document.getElementById('loginError').textContent = `密碼錯誤，還有 ${3 - loginAttempts} 次機會`;
+                    document.getElementById('loginError').classList.remove('hidden');
+                }
+                document.getElementById('teacherPassword').value = '';
+            }
+        }
+
+        function logout() {
+            currentUser = null;
+            currentStudent = null;
+            updateUI();
+        }
+
+        // 更新UI權限
+        function updateUI() {
+            const isLoggedIn = currentUser !== null;
+            const isTeacher = currentUser === 'teacher';
+            const isStudent = currentUser === 'student';
+
+            // 顯示/隱藏登入按鈕和用戶資訊
+            document.getElementById('loginButtons').style.display = isLoggedIn ? 'none' : 'flex';
+            document.getElementById('userInfo').style.display = isLoggedIn ? 'flex' : 'none';
+
+            // 顯示/隱藏教師功能按鈕
+            document.getElementById('manageBtn').style.display = isTeacher ? 'flex' : 'none';
+            document.getElementById('messagesBtn').style.display = isTeacher ? 'flex' : 'none';
+            document.getElementById('scoreHistoryBtn').style.display = isTeacher ? 'flex' : 'none';
+            document.getElementById('rewardManageBtn').style.display = isTeacher ? 'flex' : 'none';
+            document.getElementById('quizManageBtn').style.display = isTeacher ? 'flex' : 'none';
+            document.getElementById('changePasswordBtn').style.display = isTeacher ? 'flex' : 'none';
+            document.getElementById('addAnnouncementBtn').style.display = isTeacher ? 'block' : 'none';
+            document.getElementById('quickScoreSection').style.display = isTeacher ? 'block' : 'none';
+            
+            // 顯示/隱藏學生功能按鈕
+            document.getElementById('messageboardBtn').style.display = isStudent ? 'flex' : 'none';
+            document.getElementById('scoreQueryBtn').style.display = isStudent ? 'flex' : 'none';
+            document.getElementById('rewardExchangeBtn').style.display = isStudent ? 'flex' : 'none';
+            document.getElementById('studentQuizBtn').style.display = isStudent ? 'flex' : 'none';
+
+            // 如果不是教師且在管理頁面，切換到首頁
+            if (!isTeacher && (!document.getElementById('manageContent').classList.contains('hidden') || 
+                              !document.getElementById('messagesContent').classList.contains('hidden') ||
+                              !document.getElementById('scoreHistoryContent').classList.contains('hidden') ||
+                              !document.getElementById('rewardManageContent').classList.contains('hidden') ||
+                              !document.getElementById('quizManageContent').classList.contains('hidden'))) {
+                showTab('home');
+            }
+
+            // 更新標題編輯權限
+            const titleElement = document.getElementById('classTitle');
+            if (isTeacher) {
+                titleElement.style.cursor = 'pointer';
+                titleElement.title = '點擊編輯班級名稱';
+            } else {
+                titleElement.style.cursor = 'default';
+                titleElement.title = '';
+            }
+        }
+
+        // 分頁切換函數
+        function showManageTab() {
+            if (currentUser !== 'teacher') return;
+            
+            document.getElementById('homeContent').classList.add('hidden');
+            document.getElementById('manageContent').classList.remove('hidden');
+            document.getElementById('messagesContent').classList.add('hidden');
+            document.getElementById('scoreHistoryContent').classList.add('hidden');
+            document.getElementById('rewardManageContent').classList.add('hidden');
+            document.getElementById('quizManageContent').classList.add('hidden');
+            updateSelects();
+            updateGroupStatus();
+        }
+
+        function showMessagesTab() {
+            if (currentUser !== 'teacher') return;
+            
+            document.getElementById('homeContent').classList.add('hidden');
+            document.getElementById('manageContent').classList.add('hidden');
+            document.getElementById('messagesContent').classList.remove('hidden');
+            document.getElementById('scoreHistoryContent').classList.add('hidden');
+            document.getElementById('rewardManageContent').classList.add('hidden');
+            document.getElementById('quizManageContent').classList.add('hidden');
+            updateTeacherMessages();
+        }
+
+        function showScoreHistoryTab() {
+            if (currentUser !== 'teacher') return;
+            
+            document.getElementById('homeContent').classList.add('hidden');
+            document.getElementById('manageContent').classList.add('hidden');
+            document.getElementById('messagesContent').classList.add('hidden');
+            document.getElementById('scoreHistoryContent').classList.remove('hidden');
+            document.getElementById('rewardManageContent').classList.add('hidden');
+            document.getElementById('quizManageContent').classList.add('hidden');
+            updateScoreHistoryFilter();
+            updateScoreHistory();
+        }
+
+        function showRewardManageTab() {
+            if (currentUser !== 'teacher') return;
+            
+            document.getElementById('homeContent').classList.add('hidden');
+            document.getElementById('manageContent').classList.add('hidden');
+            document.getElementById('messagesContent').classList.add('hidden');
+            document.getElementById('scoreHistoryContent').classList.add('hidden');
+            document.getElementById('rewardManageContent').classList.remove('hidden');
+            document.getElementById('quizManageContent').classList.add('hidden');
+            updateRewardManageList();
+            updateExchangeRequests();
+        }
+
+        function showQuizManageTab() {
+            if (currentUser !== 'teacher') return;
+            
+            document.getElementById('homeContent').classList.add('hidden');
+            document.getElementById('manageContent').classList.add('hidden');
+            document.getElementById('messagesContent').classList.add('hidden');
+            document.getElementById('scoreHistoryContent').classList.add('hidden');
+            document.getElementById('rewardManageContent').classList.add('hidden');
+            document.getElementById('quizManageContent').classList.remove('hidden');
+            updateCurrentQuizList();
+        }
+
+        function showHomeTab() {
+            document.getElementById('homeContent').classList.remove('hidden');
+            document.getElementById('manageContent').classList.add('hidden');
+            document.getElementById('messagesContent').classList.add('hidden');
+            document.getElementById('scoreHistoryContent').classList.add('hidden');
+            document.getElementById('rewardManageContent').classList.add('hidden');
+            document.getElementById('quizManageContent').classList.add('hidden');
+        }
+
+        // 分頁切換 (保留舊函數以防其他地方使用)
+        function showTab(tab) {
+            if (tab === 'home') {
+                showHomeTab();
+            } else if (tab === 'manage' && currentUser === 'teacher') {
+                showManageTab();
+            } else if (tab === 'messages' && currentUser === 'teacher') {
+                showMessagesTab();
+            }
+        }
+
+        // 編輯標題
+        function editTitle() {
+            if (currentUser !== 'teacher') return;
+            
+            const newTitle = prompt('請輸入新的班級名稱：', classTitle);
+            if (newTitle && newTitle.trim()) {
+                classTitle = newTitle.trim();
+                document.getElementById('classTitle').textContent = classTitle;
+                google.script.run.setStorage('classTitle', classTitle);
+            }
+        }
+
+        // 載入資料
+        function loadData() {
+            const keys = ['groups','students','announcements','classTitle','loginAttempts','lockoutTime','teacherPassword','studentMessages','scoreHistory','rewards','exchangeRequests','quizzes','quizAnswers'];
+            let loaded = 0;
+            const expected = keys.length;
+            // finalize function to run once all keys have been processed (success or failure)
+            function finalizeLoad() {
+                // ensure defaults
+                groups = groups || [];
+                students = students || [];
+                announcements = announcements || [];
+                studentMessages = studentMessages || [];
+                scoreHistory = scoreHistory || [];
+                rewards = rewards || [];
+                exchangeRequests = exchangeRequests || [];
+                quizzes = quizzes || [];
+                quizAnswers = quizAnswers || [];
+                classTitle = classTitle || '班級管理系統';
+                document.getElementById('classTitle').textContent = classTitle;
+                // update UI
+                updateRankings();
+                updateAnnouncements();
+                updateSelects();
+                updateGroupStatus();
+                updateTeacherMessages();
+                updateCurrentQuizList();
+                updateRewardManageList();
+                updateQuizHistory();
+                updateTeacherExchangeHistoryFilters();
+                updateTeacherExchangeHistory();
+            }
+            keys.forEach(function(key){
+                google.script.run
+                    .withSuccessHandler(function(value){
+                        try {
+                            if (value !== null && value !== undefined) {
+                                switch(key) {
+                                    case 'groups': groups = value; break;
+                                    case 'students': students = value; break;
+                                    case 'announcements': announcements = value; break;
+                                    case 'classTitle': classTitle = value; break;
+                                    case 'loginAttempts': loginAttempts = parseInt(value) || 0; break;
+                                    case 'lockoutTime': lockoutTime = parseInt(value) || 0; break;
+                                    case 'teacherPassword': teacherPassword = value || teacherPassword; break;
+                                    case 'studentMessages': studentMessages = value; break;
+                                    case 'scoreHistory': scoreHistory = value; break;
+                                    case 'rewards': rewards = value; break;
+                                    case 'exchangeRequests': exchangeRequests = value; break;
+                                    case 'quizzes': quizzes = value; break;
+                                    case 'quizAnswers': quizAnswers = value; break;
+                                }
+                            }
+                        } catch(e) {
+                            console.error('loadData parse error for', key, e);
+                        }
+                        loaded++;
+                        if (loaded === expected) {
+                            finalizeLoad();
+                        }
+                    })
+                    .withFailureHandler(function(err){
+                        console.error('loadData failed for', key, err);
+                        loaded++;
+                        if (loaded === expected) {
+                            finalizeLoad();
+                        }
+                    })
+                    .getStorage(key);
+            });
+        }
+</script>
